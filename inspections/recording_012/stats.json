@@ -1,0 +1,382 @@
+{
+  "recording": "recording_012",
+  "participant": "Tias",
+  "channels": {
+    "ecg": {
+      "name": "ecg",
+      "fs_hz": 499.9766360710454,
+      "n_samples": 1084496,
+      "duration_s": 2168.9900000095367,
+      "t_unix_start": 1773341249.638349,
+      "t_unix_end": 1773343418.628349,
+      "mean": -5.286690275419126e-08,
+      "std": 0.001308609814282774,
+      "min": -0.0055472597868546,
+      "max": 0.0055490112304687,
+      "p1": -0.00400951418669318,
+      "p99": 0.0040716685419497,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.0007376698484826132
+    },
+    "emg": {
+      "name": "emg",
+      "fs_hz": 2000.144969003338,
+      "n_samples": 4338208,
+      "duration_s": 2169.1034989356995,
+      "t_unix_start": 1773341249.638349,
+      "t_unix_end": 1773343418.741848,
+      "mean": -2.9662695044554774e-09,
+      "std": 0.00013532637910697746,
+      "min": -0.0044223951256793,
+      "max": 0.0045576941448709,
+      "p1": -0.0003643002717391,
+      "p99": 0.0003472236965013,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 2.305099248353237e-05
+    },
+    "eda": {
+      "name": "eda",
+      "fs_hz": 50.000047683761295,
+      "n_samples": 108450,
+      "duration_s": 2168.9800000190735,
+      "t_unix_start": 1773341249.638349,
+      "t_unix_end": 1773343418.618349,
+      "mean": 2.73813901917767e-07,
+      "std": 6.128648746217981e-09,
+      "min": 2.39495705045556e-07,
+      "max": 3.175391611875966e-07,
+      "p1": 2.5088260827033085e-07,
+      "p99": 2.9400828822190305e-07,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.0018441678192715537
+    },
+    "temperature": {
+      "name": "temperature",
+      "status": "empty_or_missing"
+    },
+    "ppg_green": {
+      "name": "ppg_green",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 216912,
+      "duration_s": 2169.1099989414215,
+      "t_unix_start": 1773341249.638349,
+      "t_unix_end": 1773343418.748348,
+      "mean": 5917.25947399798,
+      "std": 282.44746105068026,
+      "min": 4740.20388,
+      "max": 6601.06479,
+      "p1": 4907.726063700001,
+      "p99": 6409.204820700001,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.017979641513609205
+    },
+    "ppg_blue": {
+      "name": "ppg_blue",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 216912,
+      "duration_s": 2169.1099989414215,
+      "t_unix_start": 1773341249.638349,
+      "t_unix_end": 1773343418.748348,
+      "mean": 7065.354629872484,
+      "std": 136.5667574362701,
+      "min": 6490.88892,
+      "max": 7381.861440000001,
+      "p1": 6593.442507900001,
+      "p99": 7290.1724214,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.05209485874456001
+    },
+    "ppg_red": {
+      "name": "ppg_red",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 216912,
+      "duration_s": 2169.1099989414215,
+      "t_unix_start": 1773341249.638349,
+      "t_unix_end": 1773343418.748348,
+      "mean": 6814.869205562763,
+      "std": 105.23875509387878,
+      "min": 6438.55968,
+      "max": 7009.679880000001,
+      "p1": 6550.001580000001,
+      "p99": 6984.091850700001,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.07514568119790514
+    },
+    "ppg_ir": {
+      "name": "ppg_ir",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 216912,
+      "duration_s": 2169.1099989414215,
+      "t_unix_start": 1773341249.638349,
+      "t_unix_end": 1773343418.748348,
+      "mean": 5793.2140597842445,
+      "std": 149.84547216631316,
+      "min": 5304.962670000001,
+      "max": 6092.105100000001,
+      "p1": 5465.06076,
+      "p99": 6049.1660514,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.03365420078188389
+    },
+    "ax": {
+      "name": "ax",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 216912,
+      "duration_s": 2169.1099989414215,
+      "t_unix_start": 1773341249.638349,
+      "t_unix_end": 1773343418.748348,
+      "mean": 3.991019133630716,
+      "std": 6.546527537415052,
+      "min": -72.07558211803436,
+      "max": 77.81351097106933,
+      "p1": -11.29021679520607,
+      "p99": 12.857672551059686,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.0004610164490669027
+    },
+    "ay": {
+      "name": "ay",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 216912,
+      "duration_s": 2169.1099989414215,
+      "t_unix_start": 1773341249.638349,
+      "t_unix_end": 1773343418.748348,
+      "mean": -4.054603981450757,
+      "std": 3.206655830251729,
+      "min": -75.59067556858064,
+      "max": 78.44466878414154,
+      "p1": -10.06622148156166,
+      "p99": 4.1389356483936135,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.0004610164490669027
+    },
+    "az": {
+      "name": "az",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 216912,
+      "duration_s": 2169.1099989414215,
+      "t_unix_start": 1773341249.638349,
+      "t_unix_end": 1773343418.748348,
+      "mean": 2.816024420808335,
+      "std": 3.317202841717306,
+      "min": -78.33448385238648,
+      "max": 59.02961603164673,
+      "p1": -5.5031871181726455,
+      "p99": 10.416999877881986,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.0004610164490669027
+    },
+    "acc_mag": {
+      "name": "acc_mag",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 216912,
+      "duration_s": 2169.1099989414215,
+      "t_unix_start": 1773341249.638349,
+      "t_unix_end": 1773343418.748348,
+      "mean": 10.037859163358629,
+      "std": 1.9190943779520868,
+      "min": 0.3828538051463167,
+      "max": 122.41292286819854,
+      "p1": 6.01214563113798,
+      "p99": 15.316344825227715,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.0004610164490669027
+    }
+  },
+  "sets_from_markers": 12,
+  "sets_from_acc": 42,
+  "sets_from_metadata": 12,
+  "sets_from_participants": 12,
+  "bio_t0_unix": 1773341249.638349,
+  "bio_duration_s": 2168.9900000095367,
+  "joint_coverage": [
+    {
+      "set_number": 1,
+      "joint_file": "recording_01_joints.json",
+      "n_frames": 460
+    },
+    {
+      "set_number": 2,
+      "joint_file": "recording_02_joints.json",
+      "n_frames": 541
+    },
+    {
+      "set_number": 3,
+      "joint_file": "recording_03_joints.json",
+      "n_frames": 559
+    },
+    {
+      "set_number": 4,
+      "joint_file": "recording_04_joints.json",
+      "n_frames": 398
+    },
+    {
+      "set_number": 5,
+      "joint_file": "recording_05_joints.json",
+      "n_frames": 487
+    },
+    {
+      "set_number": 6,
+      "joint_file": "recording_06_joints.json",
+      "n_frames": 431
+    },
+    {
+      "set_number": 7,
+      "joint_file": "recording_07_joints.json",
+      "n_frames": 643
+    },
+    {
+      "set_number": 8,
+      "joint_file": "recording_08_joints.json",
+      "n_frames": 559
+    },
+    {
+      "set_number": 9,
+      "joint_file": "recording_09_joints.json",
+      "n_frames": 555
+    },
+    {
+      "set_number": 10,
+      "joint_file": "recording_10_joints.json",
+      "n_frames": 526
+    },
+    {
+      "set_number": 11,
+      "joint_file": "recording_11_joints.json",
+      "n_frames": 566
+    },
+    {
+      "set_number": 12,
+      "joint_file": "recording_12_joints.json",
+      "n_frames": 662
+    }
+  ],
+  "sets": [
+    {
+      "set_number": 1,
+      "start_unix": 1773341383.6310904,
+      "end_unix": 1773341405.4412775,
+      "duration_s": 21.810187101364136,
+      "n_reps": 8
+    },
+    {
+      "set_number": 2,
+      "start_unix": 1773341535.4096813,
+      "end_unix": 1773341560.9925852,
+      "duration_s": 25.58290386199951,
+      "n_reps": 10
+    },
+    {
+      "set_number": 3,
+      "start_unix": 1773341700.0370617,
+      "end_unix": 1773341726.6108189,
+      "duration_s": 26.57375717163086,
+      "n_reps": 10
+    },
+    {
+      "set_number": 4,
+      "start_unix": 1773341942.0150602,
+      "end_unix": 1773341960.9411545,
+      "duration_s": 18.92609429359436,
+      "n_reps": 8
+    },
+    {
+      "set_number": 5,
+      "start_unix": 1773342101.268984,
+      "end_unix": 1773342124.5469613,
+      "duration_s": 23.277977228164673,
+      "n_reps": 10
+    },
+    {
+      "set_number": 6,
+      "start_unix": 1773342253.8823268,
+      "end_unix": 1773342274.3998265,
+      "duration_s": 20.517499685287476,
+      "n_reps": 10
+    },
+    {
+      "set_number": 7,
+      "start_unix": 1773342413.925676,
+      "end_unix": 1773342444.487155,
+      "duration_s": 30.561478853225708,
+      "n_reps": 8
+    },
+    {
+      "set_number": 8,
+      "start_unix": 1773342590.3104413,
+      "end_unix": 1773342616.899526,
+      "duration_s": 26.58908462524414,
+      "n_reps": 8
+    },
+    {
+      "set_number": 9,
+      "start_unix": 1773342753.9707403,
+      "end_unix": 1773342780.4246716,
+      "duration_s": 26.45393133163452,
+      "n_reps": 8
+    },
+    {
+      "set_number": 10,
+      "start_unix": 1773342926.8833475,
+      "end_unix": 1773342952.1574643,
+      "duration_s": 25.27411675453186,
+      "n_reps": 8
+    },
+    {
+      "set_number": 11,
+      "start_unix": 1773343090.7231927,
+      "end_unix": 1773343117.658969,
+      "duration_s": 26.935776233673096,
+      "n_reps": 8
+    },
+    {
+      "set_number": 12,
+      "start_unix": 1773343254.2633877,
+      "end_unix": 1773343285.8291264,
+      "duration_s": 31.565738677978516,
+      "n_reps": 9
+    }
+  ],
+  "participants": {
+    "name": "Tias",
+    "exercises": [
+      "pullup",
+      "pullup",
+      "pullup",
+      "benchpress",
+      "benchpress",
+      "benchpress",
+      "deadlift",
+      "deadlift",
+      "deadlift",
+      "squat",
+      "squat",
+      "squat"
+    ],
+    "rpe": [
+      4,
+      6,
+      8,
+      6,
+      6,
+      6,
+      6,
+      6,
+      8,
+      6,
+      7,
+      8
+    ]
+  }
+}

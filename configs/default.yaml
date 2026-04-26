@@ -1,0 +1,73 @@
+# Default training and processing config.
+
+data:
+  raw_dir: data/raw
+  labeled_dir: data/labeled
+  inspections_dir: inspections
+  participants_xlsx: data/raw/participants.xlsx  # or per-session, auto-detected
+  timestamp_format: unix_epoch  # all timestamps in seconds since 1970
+
+sample_rates:
+  ecg: 500       # FYLL INN faktisk
+  emg: 1000
+  eda: 32
+  temp: 4
+  acc: 100
+  ppg_green: 64
+
+filters:
+  ecg: {type: butterworth, order: 4, low: 0.5, high: 40, notch: 50}
+  emg: {type: butterworth, order: 4, low: 20, high: 450, notch: 50}
+  eda: {type: butterworth, order: 4, low: null, high: 5}  # LP only
+  temp: {type: butterworth, order: 2, low: null, high: 0.1}
+  acc: {type: butterworth, order: 4, low: 0.5, high: 20}  # apply to magnitude
+  ppg_green: {type: butterworth, order: 4, low: 0.5, high: 8}
+
+windows:
+  primary_hop_ms: 100
+  short_window_ms: 500     # phase, fast features
+  medium_window_ms: 2000   # exercise classification
+  long_window_ms: 10000    # slow fatigue features
+  fatigue_window_ms: 30000 # HRV, EMG slope context
+
+baseline:
+  use_first_rest_s: 60     # first 60 s of session for per-subject baseline
+  features: [emg_mnf, emg_mdf, emg_rms, ecg_hr, eda_scl, temp_mean]
+
+session_segmentation:
+  threshold_g: 0.3
+  min_active_duration_s: 20
+  merge_gap_s: 5
+  trust_spreadsheet_when_available: true
+
+models:
+  fatigue:
+    type: lgbm_regressor
+    objective: regression_l1
+    n_estimators: 300
+    max_depth: 5
+    learning_rate: 0.05
+    num_leaves: 15
+    min_child_samples: 10
+  exercise:
+    type: lgbm_classifier
+    objective: multiclass
+    n_estimators: 300
+    max_depth: 6
+    class_weight: balanced
+  phase:
+    primary: state_machine   # try state machine first
+    fallback: lgbm_classifier
+    min_state_machine_f1: 0.85
+  reps:
+    primary: state_machine
+    fallback: lgbm_regressor
+    min_state_machine_recall: 0.85
+
+cv:
+  scheme: loso              # auto-switches to GroupKFold(5) if N > 24
+  n_splits: 5
+
+latency:
+  budget_p99_ms: 100
+  benchmark_replay_minutes: 10

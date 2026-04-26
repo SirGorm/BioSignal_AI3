@@ -1,0 +1,114 @@
+# Default training and processing config.
+# Sample rates and paths verified against inspections/recording_012, recording_013.
+
+data:
+  dataset_dir: dataset                                          # raw recordings live here
+  recording_glob: "recording_*"                                 # one folder per recording
+  participants_xlsx: dataset/Participants/Participants.xlsx     # exercise + RPE per set
+  labeled_dir: data/labeled
+  inspections_dir: inspections
+  timestamp_format: unix_epoch                                  # all CSV timestamps are seconds since 1970
+
+# Per-modality CSV files inside each dataset/recording_NNN/ folder.
+# Column 0 is "timestamp", column 1 is the signal column listed below.
+modalities:
+  ecg:        {file: ecg.csv,         col: ecg}
+  emg:        {file: emg.csv,         col: emg}
+  eda:        {file: eda.csv,         col: eda}
+  temperature: {file: temperature.csv, col: temperature, optional: true}  # often empty on newer recordings
+  ppg_green:  {file: ppg_green.csv,   col: ppg_green}
+  ppg_blue:   {file: ppg_blue.csv,    col: ppg_blue,  used: false}
+  ppg_red:    {file: ppg_red.csv,     col: ppg_red,   used: false}
+  ppg_ir:     {file: ppg_ir.csv,      col: ppg_ir,    used: false}
+  ax:         {file: ax.csv,          col: ax}
+  ay:         {file: ay.csv,          col: ay}
+  az:         {file: az.csv,          col: az}
+
+# Declared sample rates from metadata.json — measurements confirm these to within 0.01 %.
+# PPG fs varies between recordings (50 Hz on rec_001, 100 Hz on rec_012/013); the loader
+# MUST read metadata.json["sampling_rates"]["ppg"] per recording rather than trusting
+# the value below. The other rates are stable across the cohort.
+sample_rates:
+  ecg: 500
+  emg: 2000
+  eda: 50
+  temp: 1
+  acc: 100        # ax, ay, az and computed acc_mag
+  ppg_green: 100  # may be 50 on older recordings — read from metadata.json
+
+filters:
+  ecg: {type: butterworth, order: 4, low: 0.5, high: 40, notch: 50}
+  emg: {type: butterworth, order: 4, low: 20, high: 450, notch: 50}
+  eda: {type: butterworth, order: 4, low: null, high: 5}    # LP only
+  temp: {type: butterworth, order: 2, low: null, high: 0.1}
+  acc: {type: butterworth, order: 4, low: 0.5, high: 20}    # apply to magnitude
+  ppg_green: {type: butterworth, order: 4, low: 0.5, high: 8}
+
+windows:
+  primary_hop_ms: 100
+  short_window_ms: 500      # phase, fast features
+  medium_window_ms: 2000    # exercise classification
+  long_window_ms: 10000     # slow fatigue features
+  fatigue_window_ms: 30000  # HRV, EMG slope context
+
+baseline:
+  use_first_rest_s: 60      # first 60 s of session for per-subject baseline
+  features: [emg_mnf, emg_mdf, emg_rms, ecg_hr, eda_scl, temp_mean]
+  skip_when_temperature_missing: true   # temp_mean is dropped if temperature.csv is empty
+
+# Offline label sources (NOT used in streaming).
+labels:
+  set_boundaries: markers_json    # markers.json has Set:N_Start / Set_N_End with unix_time
+  rep_timing:     markers_json    # markers.json has Set:N_Rep:M unix_time
+  exercise:       participants_xlsx   # exercise-row, columns set1..set12
+  rpe:            participants_xlsx   # fatigue-row directly below exercise-row
+  joint_angles:   compute_from_kinect # 32-joint skeleton in recording_NN_joints.json
+
+# Inference-time set/rep detection (no markers.json available in streaming).
+session_segmentation:
+  threshold_g: 0.3
+  min_active_duration_s: 20
+  merge_gap_s: 5
+  trust_markers_when_available: true   # offline: prefer markers.json over acc-segmentation
+  # NOTE: on rec_012 acc-segmentation produced 42 segments vs 12 true sets — threshold needs
+  # tuning per subject for streaming use, or replace with HMM/state-machine on |acc| envelope.
+
+# Azure Kinect skeleton frame rate (used to map frame_id → unix time within a set).
+kinect:
+  fps: 30
+  joints_path_pattern: "recording_{set_num:02d}_joints.json"
+  joint_names_count: 32  # K4ABT body tracking, see joint_names in any *_joints.json
+
+models:
+  fatigue:
+    type: lgbm_regressor
+    objective: regression_l1
+    n_estimators: 300
+    max_depth: 5
+    learning_rate: 0.05
+    num_leaves: 15
+    min_child_samples: 10
+  exercise:
+    type: lgbm_classifier
+    objective: multiclass
+    n_estimators: 300
+    max_depth: 6
+    class_weight: balanced
+    classes: [squat, deadlift, benchpress, pullup]
+  phase:
+    primary: state_machine    # try state machine first
+    fallback: lgbm_classifier
+    min_state_machine_f1: 0.85
+  reps:
+    primary: state_machine
+    fallback: lgbm_regressor
+    min_state_machine_recall: 0.85
+
+cv:
+  scheme: loso                # subject-wise (Name: column in Participants.xlsx)
+  n_splits: 5                 # auto-switches to GroupKFold(5) if N > 24
+  group_by: subject_id        # NOT recording_id — multiple recordings per subject exist
+
+latency:
+  budget_p99_ms: 100
+  benchmark_replay_minutes: 10

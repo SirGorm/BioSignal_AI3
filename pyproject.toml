@@ -1,0 +1,16 @@
+[project]
+name = "strength-rt"
+version = "0.1.0"
+description = "Multi-task fatigue/exercise/phase/rep estimation from wearable biosignals"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pyarrow>=12.0",
+    "openpyxl>=3.1",
+    "pyyaml>=6.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

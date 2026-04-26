@@ -1,0 +1,452 @@
+{
+  "phase1": {
+    "features_cnn1d": {
+      "exercise": {
+        "f1_macro": {
+          "mean": 0.3357169275717903,
+          "std": 0.043007709753272144,
+          "n": 5
+        }
+      },
+      "phase": {
+        "f1_macro": {
+          "mean": 0.2653654439394092,
+          "std": 0.015647032446713813,
+          "n": 5
+        }
+      },
+      "fatigue": {
+        "mae": {
+          "mean": 1.140681441144208,
+          "std": 0.1065573226631551,
+          "n": 5
+        }
+      },
+      "reps": {
+        "mae": {
+          "mean": 2.9860041581849828,
+          "std": 0.8102886309106743,
+          "n": 5
+        }
+      },
+      "variant": "features_cnn1d",
+      "arch": "cnn1d",
+      "best_hp": {
+        "repr_dim": 128,
+        "dropout": 0.10823379771832098,
+        "lr": 0.004665303012212832
+      },
+      "n_folds": 5,
+      "seeds": [
+        42
+      ],
+      "subsampled": true,
+      "subsample_n": 40000
+    },
+    "features_lstm": {
+      "exercise": {
+        "f1_macro": {
+          "mean": 0.28956755699256403,
+          "std": 0.031777667627680264,
+          "n": 5
+        }
+      },
+      "phase": {
+        "f1_macro": {
+          "mean": 0.2588031764097432,
+          "std": 0.021198229777465258,
+          "n": 5
+        }
+      },
+      "fatigue": {
+        "mae": {
+          "mean": 1.021010333681583,
+          "std": 0.10494215267531536,
+          "n": 5
+        }
+      },
+      "reps": {
+        "mae": {
+          "mean": 3.0572786605198394,
+          "std": 0.8643517532050145,
+          "n": 5
+        }
+      },
+      "variant": "features_lstm",
+      "arch": "lstm",
+      "best_hp": {
+        "repr_dim": 128,
+        "dropout": 0.20351199264000677,
+        "lr": 0.002298752892366083,
+        "hidden": 64,
+        "n_layers": 2
+      },
+      "n_folds": 5,
+      "seeds": [
+        42
+      ],
+      "subsampled": true,
+      "subsample_n": 40000
+    },
+    "features_cnn_lstm": {
+      "exercise": {
+        "f1_macro": {
+          "mean": 0.3185172669312581,
+          "std": 0.07121344686578338,
+          "n": 5
+        }
+      },
+      "phase": {
+        "f1_macro": {
+          "mean": 0.25904639173571037,
+          "std": 0.03912445589847255,
+          "n": 5
+        }
+      },
+      "fatigue": {
+        "mae": {
+          "mean": 1.0668431586838343,
+          "std": 0.10899637524097737,
+          "n": 5
+        }
+      },
+      "reps": {
+        "mae": {
+          "mean": 3.0391674247966862,
+          "std": 0.7935552267088342,
+          "n": 5
+        }
+      },
+      "variant": "features_cnn_lstm",
+      "arch": "cnn_lstm",
+      "best_hp": {
+        "repr_dim": 128,
+        "dropout": 0.10823379771832098,
+        "lr": 0.004665303012212832,
+        "conv_channels": 32,
+        "lstm_hidden": 64
+      },
+      "n_folds": 5,
+      "seeds": [
+        42
+      ],
+      "subsampled": true,
+      "subsample_n": 40000
+    },
+    "features_tcn": {
+      "exercise": {
+        "f1_macro": {
+          "mean": 0.3636916689308946,
+          "std": 0.08830382674733225,
+          "n": 5
+        }
+      },
+      "phase": {
+        "f1_macro": {
+          "mean": 0.2554305934722568,
+          "std": 0.02554964101838693,
+          "n": 5
+        }
+      },
+      "fatigue": {
+        "mae": {
+          "mean": 1.004838903700508,
+          "std": 0.17318522066359437,
+          "n": 5
+        }
+      },
+      "reps": {
+        "mae": {
+          "mean": 2.8642716824918373,
+          "std": 0.8838589972512567,
+          "n": 5
+        }
+      },
+      "variant": "features_tcn",
+      "arch": "tcn",
+      "best_hp": {
+        "repr_dim": 64,
+        "dropout": 0.12602063719411183,
+        "lr": 0.004444833953509465,
+        "kernel_size": 3
+      },
+      "n_folds": 5,
+      "seeds": [
+        42
+      ],
+      "subsampled": true,
+      "subsample_n": 40000
+    }
+  },
+  "phase2": {
+    "features_tcn": {
+      "exercise": {
+        "f1_macro": {
+          "mean": 0.3516899487302391,
+          "std": 0.11085968013388628,
+          "n": 15
+        }
+      },
+      "phase": {
+        "f1_macro": {
+          "mean": 0.2750843357573605,
+          "std": 0.046451113783049745,
+          "n": 15
+        }
+      },
+      "fatigue": {
+        "mae": {
+          "mean": 1.0489237301650436,
+          "std": 0.11981693386747815,
+          "n": 15
+        }
+      },
+      "reps": {
+        "mae": {
+          "mean": 2.959073475994556,
+          "std": 0.7451156622396137,
+          "n": 15
+        }
+      },
+      "variant": "features_tcn_p2",
+      "arch": "tcn",
+      "best_hp": {},
+      "n_folds": 5,
+      "seeds": [
+        42,
+        1337,
+        7
+      ],
+      "subsampled": true,
+      "subsample_n": 40000
+    },
+    "features_cnn1d": {
+      "exercise": {
+        "f1_macro": {
+          "mean": 0.33934068541747336,
+          "std": 0.07552672027041667,
+          "n": 15
+        }
+      },
+      "phase": {
+        "f1_macro": {
+          "mean": 0.2469638522619903,
+          "std": 0.03325393046244758,
+          "n": 15
+        }
+      },
+      "fatigue": {
+        "mae": {
+          "mean": 1.0174608189941006,
+          "std": 0.06865547338121174,
+          "n": 15
+        }
+      },
+      "reps": {
+        "mae": {
+          "mean": 2.9838681354193954,
+          "std": 0.8439436268992695,
+          "n": 15
+        }
+      },
+      "variant": "features_cnn1d_p2",
+      "arch": "cnn1d",
+      "best_hp": {},
+      "n_folds": 5,
+      "seeds": [
+        42,
+        1337,
+        7
+      ],
+      "subsampled": true,
+      "subsample_n": 40000
+    },
+    "features_cnn_lstm": {
+      "exercise": {
+        "f1_macro": {
+          "mean": 0.3487211087533681,
+          "std": 0.0880094881739983,
+          "n": 15
+        }
+      },
+      "phase": {
+        "f1_macro": {
+          "mean": 0.2738016491482951,
+          "std": 0.020625339613937012,
+          "n": 15
+        }
+      },
+      "fatigue": {
+        "mae": {
+          "mean": 1.0467007831975128,
+          "std": 0.08451898052271728,
+          "n": 15
+        }
+      },
+      "reps": {
+        "mae": {
+          "mean": 3.0141854375834054,
+          "std": 0.8605110441311135,
+          "n": 15
+        }
+      },
+      "variant": "features_cnn_lstm_p2",
+      "arch": "cnn_lstm",
+      "best_hp": {},
+      "n_folds": 5,
+      "seeds": [
+        42,
+        1337,
+        7
+      ],
+      "subsampled": true,
+      "subsample_n": 40000
+    }
+  },
+  "ranking": [
+    {
+      "variant": "features_tcn",
+      "exercise_f1_macro": 0.3636916689308946,
+      "phase_f1_macro": 0.2554305934722568,
+      "fatigue_mae": 1.004838903700508,
+      "reps_mae": 2.8642716824918373,
+      "exercise_f1_macro_rank": 1,
+      "phase_f1_macro_rank": 4,
+      "fatigue_mae_rank": 1,
+      "reps_mae_rank": 1,
+      "mean_rank": 1.75
+    },
+    {
+      "variant": "features_cnn1d",
+      "exercise_f1_macro": 0.3357169275717903,
+      "phase_f1_macro": 0.2653654439394092,
+      "fatigue_mae": 1.140681441144208,
+      "reps_mae": 2.9860041581849828,
+      "exercise_f1_macro_rank": 2,
+      "phase_f1_macro_rank": 1,
+      "fatigue_mae_rank": 4,
+      "reps_mae_rank": 2,
+      "mean_rank": 2.25
+    },
+    {
+      "variant": "features_cnn_lstm",
+      "exercise_f1_macro": 0.3185172669312581,
+      "phase_f1_macro": 0.25904639173571037,
+      "fatigue_mae": 1.0668431586838343,
+      "reps_mae": 3.0391674247966862,
+      "exercise_f1_macro_rank": 3,
+      "phase_f1_macro_rank": 2,
+      "fatigue_mae_rank": 3,
+      "reps_mae_rank": 3,
+      "mean_rank": 2.75
+    },
+    {
+      "variant": "features_lstm",
+      "exercise_f1_macro": 0.28956755699256403,
+      "phase_f1_macro": 0.2588031764097432,
+      "fatigue_mae": 1.021010333681583,
+      "reps_mae": 3.0572786605198394,
+      "exercise_f1_macro_rank": 4,
+      "phase_f1_macro_rank": 3,
+      "fatigue_mae_rank": 2,
+      "reps_mae_rank": 4,
+      "mean_rank": 3.25
+    }
+  ],
+  "latency": {
+    "cnn1d": {
+      "p50_ms": 0.2632000032463111,
+      "p95_ms": 0.3345100056321825,
+      "p99_ms": 0.36834300160990074,
+      "mean_ms": 0.2516744998865761
+    },
+    "lstm": {
+      "p50_ms": 0.5872500005352776,
+      "p95_ms": 0.7473299992852843,
+      "p99_ms": 0.8007170030759876,
+      "mean_ms": 0.6062330001077498
+    },
+    "cnn_lstm": {
+      "p50_ms": 0.48754999806988053,
+      "p95_ms": 0.6535600019560659,
+      "p99_ms": 0.7201300028100375,
+      "mean_ms": 0.4977015003169072
+    },
+    "tcn": {
+      "p50_ms": 1.916749999509193,
+      "p95_ms": 2.390094996735568,
+      "p99_ms": 3.8413020014559125,
+      "mean_ms": 1.9655585000509745
+    }
+  },
+  "ablation": {
+    "arch": "tcn",
+    "soft_sharing": {
+      "exercise": {
+        "f1_macro": {
+          "mean": 0.3114129763903708,
+          "std": 0.009686676255437676,
+          "n": 2
+        }
+      },
+      "phase": {
+        "f1_macro": {
+          "mean": 0.23164519792360866,
+          "std": 0.06098125280822621,
+          "n": 2
+        }
+      },
+      "fatigue": {
+        "mae": {
+          "mean": 1.0104196869447457,
+          "std": 0.10675424771110964,
+          "n": 2
+        }
+      },
+      "reps": {
+        "mae": {
+          "mean": 3.729563442115704,
+          "std": 0.6152126058997902,
+          "n": 2
+        }
+      }
+    },
+    "hard_sharing": {
+      "exercise": {
+        "f1_macro": {
+          "mean": 0.26883757913617795,
+          "std": 0.03650441256615955,
+          "n": 2
+        }
+      },
+      "phase": {
+        "f1_macro": {
+          "mean": 0.23104514238466006,
+          "std": 0.0391373403708941,
+          "n": 2
+        }
+      },
+      "fatigue": {
+        "mae": {
+          "mean": 1.0922962321578145,
+          "std": 0.05970028949563866,
+          "n": 2
+        }
+      },
+      "reps": {
+        "mae": {
+          "mean": 3.749212403778043,
+          "std": 0.7939568270823616,
+          "n": 2
+        }
+      }
+    },
+    "verdict": "Soft sharing improved: soft-sharing improved exercise by 0.043; soft-sharing improved fatigue by 0.082"
+  },
+  "winner": "features_tcn",
+  "top_variants": [
+    "features_tcn",
+    "features_cnn1d",
+    "features_cnn_lstm"
+  ]
+}

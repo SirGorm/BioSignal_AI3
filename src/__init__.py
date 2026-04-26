@@ -1,0 +1,1 @@
+"""Strength-RT source package."""

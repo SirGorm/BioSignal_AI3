@@ -1,0 +1,195 @@
+{
+  "summary": {
+    "exercise": {
+      "f1_macro": {
+        "mean": 0.3357169275717903,
+        "std": 0.043007709753272144,
+        "n": 5
+      }
+    },
+    "phase": {
+      "f1_macro": {
+        "mean": 0.2653654439394092,
+        "std": 0.015647032446713813,
+        "n": 5
+      }
+    },
+    "fatigue": {
+      "mae": {
+        "mean": 1.140681441144208,
+        "std": 0.1065573226631551,
+        "n": 5
+      }
+    },
+    "reps": {
+      "mae": {
+        "mean": 2.9860041581849828,
+        "std": 0.8102886309106743,
+        "n": 5
+      }
+    },
+    "variant": "features_cnn1d",
+    "arch": "cnn1d",
+    "best_hp": {
+      "repr_dim": 128,
+      "dropout": 0.10823379771832098,
+      "lr": 0.004665303012212832
+    },
+    "n_folds": 5,
+    "seeds": [
+      42
+    ],
+    "subsampled": true,
+    "subsample_n": 40000
+  },
+  "all_results": [
+    {
+      "seed": 42,
+      "fold": 0,
+      "test_subjects": [
+        "Gorm",
+        "Gorm",
+        "Gorm"
+      ],
+      "metrics": {
+        "exercise": {
+          "f1_macro": 0.2657002015126949,
+          "balanced_accuracy": 0.27958944647760925,
+          "n": 182309
+        },
+        "phase": {
+          "f1_macro": 0.29095109042288914,
+          "balanced_accuracy": 0.3006842411102875,
+          "n": 58337
+        },
+        "fatigue": {
+          "mae": 1.3203933682984776,
+          "pearson_r": 0.1462997496304203,
+          "n": 182309
+        },
+        "reps": {
+          "mae": 4.582354479685484,
+          "n": 182309
+        }
+      }
+    },
+    {
+      "seed": 42,
+      "fold": 1,
+      "test_subjects": [
+        "Vivian",
+        "michael",
+        "Juile"
+      ],
+      "metrics": {
+        "exercise": {
+          "f1_macro": 0.31275356988400926,
+          "balanced_accuracy": 0.33107813508339423,
+          "n": 132918
+        },
+        "phase": {
+          "f1_macro": 0.24740635180187662,
+          "balanced_accuracy": 0.30886966167780977,
+          "n": 78741
+        },
+        "fatigue": {
+          "mae": 1.092507934543048,
+          "pearson_r": 0.026621253509035894,
+          "n": 132918
+        },
+        "reps": {
+          "mae": 2.6737483249143064,
+          "n": 132918
+        }
+      }
+    },
+    {
+      "seed": 42,
+      "fold": 2,
+      "test_subjects": [
+        "Elias",
+        "sivert",
+        "kiyomi"
+      ],
+      "metrics": {
+        "exercise": {
+          "f1_macro": 0.38955656059763033,
+          "balanced_accuracy": 0.3865831984918665,
+          "n": 96301
+        },
+        "phase": {
+          "f1_macro": 0.2744006956422152,
+          "balanced_accuracy": 0.34209795203064713,
+          "n": 55121
+        },
+        "fatigue": {
+          "mae": 0.99234738158637,
+          "pearson_r": 0.05388014199769104,
+          "n": 96301
+        },
+        "reps": {
+          "mae": 2.773336570840579,
+          "n": 96301
+        }
+      }
+    },
+    {
+      "seed": 42,
+      "fold": 3,
+      "test_subjects": [
+        "lucas 2",
+        "Tias"
+      ],
+      "metrics": {
+        "exercise": {
+          "f1_macro": 0.3465132073803616,
+          "balanced_accuracy": 0.3609107317449053,
+          "n": 69958
+        },
+        "phase": {
+          "f1_macro": 0.260678039359137,
+          "balanced_accuracy": 0.3123050019044446,
+          "n": 40865
+        },
+        "fatigue": {
+          "mae": 1.151446917320205,
+          "pearson_r": 0.01373632474099273,
+          "n": 69958
+        },
+        "reps": {
+          "mae": 2.3559642324773713,
+          "n": 69958
+        }
+      }
+    },
+    {
+      "seed": 42,
+      "fold": 4,
+      "test_subjects": [
+        "lucas",
+        "Raghild"
+      ],
+      "metrics": {
+        "exercise": {
+          "f1_macro": 0.3640610984842554,
+          "balanced_accuracy": 0.3639126634533879,
+          "n": 75011
+        },
+        "phase": {
+          "f1_macro": 0.253391042470928,
+          "balanced_accuracy": 0.3310628541347324,
+          "n": 44914
+        },
+        "fatigue": {
+          "mae": 1.1467116039729395,
+          "pearson_r": 0.16825472796496596,
+          "n": 75011
+        },
+        "reps": {
+          "mae": 2.5446171830071744,
+          "n": 75011
+        }
+      }
+    }
+  ]
+}

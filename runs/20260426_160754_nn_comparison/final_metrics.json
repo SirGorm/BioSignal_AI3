@@ -1,0 +1,68 @@
+{
+  "rows": [
+    {
+      "model": "LightGBM (baseline)",
+      "exercise_f1": 0.427,
+      "phase_f1": 0.31234258815373245,
+      "fatigue_mae": 0.965,
+      "reps_mae": 1.6380677214649275,
+      "latency_p99_ms": null,
+      "causal": true,
+      "deployment_candidate": true
+    },
+    {
+      "model": "features_tcn",
+      "arch": "tcn",
+      "exercise_f1": 0.3516899487302391,
+      "exercise_f1_std": 0.11085968013388628,
+      "phase_f1": 0.2750843357573605,
+      "phase_f1_std": 0.046451113783049745,
+      "fatigue_mae": 1.0489237301650436,
+      "fatigue_mae_std": 0.11981693386747815,
+      "reps_mae": 2.959073475994556,
+      "reps_mae_std": 0.7451156622396137,
+      "latency_p99_ms": 3.8413020014559125,
+      "causal": true,
+      "deployment_candidate": true,
+      "note": null
+    },
+    {
+      "model": "features_cnn1d",
+      "arch": "cnn1d",
+      "exercise_f1": 0.33934068541747336,
+      "exercise_f1_std": 0.07552672027041667,
+      "phase_f1": 0.2469638522619903,
+      "phase_f1_std": 0.03325393046244758,
+      "fatigue_mae": 1.0174608189941006,
+      "fatigue_mae_std": 0.06865547338121174,
+      "reps_mae": 2.9838681354193954,
+      "reps_mae_std": 0.8439436268992695,
+      "latency_p99_ms": 0.36834300160990074,
+      "causal": true,
+      "deployment_candidate": true,
+      "note": null
+    },
+    {
+      "model": "features_cnn_lstm",
+      "arch": "cnn_lstm",
+      "exercise_f1": 0.3487211087533681,
+      "exercise_f1_std": 0.0880094881739983,
+      "phase_f1": 0.2738016491482951,
+      "phase_f1_std": 0.020625339613937012,
+      "fatigue_mae": 1.0467007831975128,
+      "fatigue_mae_std": 0.08451898052271728,
+      "reps_mae": 3.0141854375834054,
+      "reps_mae_std": 0.8605110441311135,
+      "latency_p99_ms": 0.7201300028100375,
+      "causal": false,
+      "deployment_candidate": false,
+      "note": "research_only: BiLSTM/CNN-LSTM non-causal (cannot deploy for real-time streaming)"
+    }
+  ],
+  "lgbm_baseline": {
+    "exercise": 0.427,
+    "phase": 0.31234258815373245,
+    "fatigue": 0.965,
+    "reps": 1.6380677214649275
+  }
+}

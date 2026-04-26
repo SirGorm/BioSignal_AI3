@@ -1,0 +1,159 @@
+{
+  "fatigue": {
+    "metric": "MAE",
+    "mean": 0.965,
+    "std": 0.0969,
+    "fold_scores": [
+      0.8968,
+      0.9815,
+      0.8412,
+      0.9777,
+      1.1278
+    ],
+    "per_subject": {
+      "Gorm": 0.8968,
+      "Vivian": 0.7822,
+      "michael": 1.3031,
+      "Juile": 0.8593,
+      "Elias": 0.6904,
+      "sivert": 1.1372,
+      "kiyomi": 0.6962,
+      "lucas 2": 0.8676,
+      "Tias": 1.0879,
+      "lucas": 0.9702,
+      "Raghild": 1.2855
+    },
+    "baseline": 1.0057744107744109,
+    "pass": false,
+    "fail_reason": "Model beats baseline by only 4.1% (0.965 vs 1.006); the 30%-below threshold requires MAE <= 0.704. Low-data regime (N=156 sets, 11 subjects) and narrow RPE range [4-10] with mean 7.1 limits regression headroom. Data review recommended.",
+    "outlier_subjects": {}
+  },
+  "exercise": {
+    "metric": "macro_F1",
+    "mean": 0.427,
+    "std": 0.0508,
+    "fold_scores": [
+      0.4203,
+      0.3615,
+      0.3863,
+      0.4677,
+      0.4994
+    ],
+    "per_subject": {
+      "Gorm": 0.4203,
+      "Vivian": 0.3279,
+      "michael": 0.4039,
+      "Juile": 0.3189,
+      "Elias": 0.4544,
+      "sivert": 0.411,
+      "kiyomi": 0.2538,
+      "lucas 2": 0.4421,
+      "Tias": 0.4805,
+      "lucas": 0.4439,
+      "Raghild": 0.5516
+    },
+    "baseline": 0.1211414521009675,
+    "pass": true,
+    "fail_reason": null
+  },
+  "phase": {
+    "metric": "macro_F1",
+    "state_machine": 0.28695181507576645,
+    "state_machine_per_subject": {
+      "Elias": 0.3480996721545926,
+      "Gorm": 0.3020232746976639,
+      "Juile": 0.3104295520182364,
+      "Raghild": 0.23480439305022902,
+      "Tias": 0.22633303791217896,
+      "Vivian": 0.31723320581642184,
+      "kiyomi": 0.2903149621059904,
+      "lucas": 0.2849485419064006,
+      "lucas 2": 0.2686130852759988,
+      "michael": 0.27571582388443844,
+      "sivert": 0.24340689703223753
+    },
+    "ml_fallback": {
+      "mean": 0.31234258815373245,
+      "std": 0.016716883270642385,
+      "per_subject": {
+        "Gorm": 0.32419947234768826,
+        "Vivian": 0.3351141027991609,
+        "michael": 0.3111356411327422,
+        "Juile": 0.27974626669240304,
+        "Elias": 0.2511824042963324,
+        "sivert": 0.2626945822952252,
+        "kiyomi": 0.38575179087279327,
+        "lucas 2": 0.3033362559704101,
+        "Tias": 0.3326676538387106,
+        "lucas": 0.285720832374612,
+        "Raghild": 0.2416249774443543
+      }
+    },
+    "primary": "ml_fallback",
+    "mean": 0.31234258815373245,
+    "std": 0.016716883270642385,
+    "per_subject": {
+      "Gorm": 0.32419947234768826,
+      "Vivian": 0.3351141027991609,
+      "michael": 0.3111356411327422,
+      "Juile": 0.27974626669240304,
+      "Elias": 0.2511824042963324,
+      "sivert": 0.2626945822952252,
+      "kiyomi": 0.38575179087279327,
+      "lucas 2": 0.3033362559704101,
+      "Tias": 0.3326676538387106,
+      "lucas": 0.285720832374612,
+      "Raghild": 0.2416249774443543
+    },
+    "baseline": 0.18816213499936726,
+    "pass": false,
+    "fail_reason": "F1 not 0.2 above stratified-random baseline"
+  },
+  "reps": {
+    "metric": "MAE",
+    "state_machine": {
+      "mean": 12.530555555555557,
+      "std": 3.0422234396556282,
+      "exact_pct": 0.641025641025641,
+      "within1_pct": 3.8461538461538463,
+      "per_subject": {
+        "Elias": 7.333333333333333,
+        "Gorm": 17.0,
+        "Juile": 9.833333333333334,
+        "Raghild": 16.333333333333332,
+        "Tias": 8.333333333333334,
+        "Vivian": 13.833333333333334,
+        "kiyomi": 10.916666666666666,
+        "lucas": 13.833333333333334,
+        "lucas 2": 11.583333333333334,
+        "michael": 11.083333333333334,
+        "sivert": 8.833333333333334
+      }
+    },
+    "ml_fallback": {
+      "mean": 1.6380677214649275,
+      "std": 0.5208489271516338,
+      "per_subject": {
+        "Gorm": 2.373302550368092,
+        "Vivian": 1.757402465492392,
+        "michael": 2.194280702595773,
+        "Juile": 0.8623358598902794,
+        "Elias": 3.058379385377408,
+        "sivert": 1.4479650438329854,
+        "kiyomi": 1.5880583803565624,
+        "lucas 2": 0.7469966728679379,
+        "Tias": 1.0869296949716567,
+        "lucas": 0.9502053006057459,
+        "Raghild": 1.5776592204374869
+      }
+    },
+    "primary": "ml_fallback",
+    "mean": 1.6380677214649275,
+    "std": 0.5208489271516338,
+    "exact_pct": 22.435897435897438,
+    "within1_pct": 40.38461538461539,
+    "baseline": 1.8075757575757574,
+    "pass": true,
+    "fail_reason": null
+  }
+}

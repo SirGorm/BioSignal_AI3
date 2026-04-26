@@ -1,0 +1,44 @@
+# Per-exercise configuration.
+# Tune these from your actual joint-angle data after first labeling run.
+
+squat:
+  primary_joint: knee_angle
+  bottom_value_deg: 60
+  top_value_deg: 175
+  rom_min_deg: 70
+  rep_freq_hz_range: [0.3, 0.8]
+  acc_peak_threshold_g: 0.4
+  min_rep_duration_s: 1.0
+  max_rep_duration_s: 5.0
+
+bench_press:
+  primary_joint: elbow_angle
+  bottom_value_deg: 80
+  top_value_deg: 175
+  rom_min_deg: 60
+  rep_freq_hz_range: [0.4, 1.0]
+  acc_peak_threshold_g: 0.3
+  min_rep_duration_s: 0.8
+  max_rep_duration_s: 4.0
+
+pushup:
+  primary_joint: elbow_angle
+  bottom_value_deg: 80
+  top_value_deg: 175
+  rom_min_deg: 60
+  rep_freq_hz_range: [0.4, 1.0]
+  acc_peak_threshold_g: 0.2  # lower threshold for bodyweight movement
+  min_rep_duration_s: 0.8
+  max_rep_duration_s: 4.0
+
+deadlift:
+  primary_joint: hip_angle
+  bottom_value_deg: 95
+  top_value_deg: 175
+  rom_min_deg: 50
+  rep_freq_hz_range: [0.2, 0.5]
+  acc_peak_threshold_g: 0.5
+  min_rep_duration_s: 1.5
+  max_rep_duration_s: 6.0
+
+# Add other exercises as needed

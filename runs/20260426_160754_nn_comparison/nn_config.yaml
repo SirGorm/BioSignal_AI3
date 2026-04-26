@@ -1,0 +1,93 @@
+# Neural network training config.
+# Used by dl-expert; LightGBM config in default.yaml is unaffected.
+
+dataset:
+  window_s: 2.0              # window length for primary tasks
+  hop_s: 0.1                 # 100 ms hop
+  fusion: hybrid             # early | late | hybrid (start with hybrid)
+  fast_group:    [emg]
+  medium_group:  [ecg, acc_mag, ppg_green]
+  slow_group:    [eda, temp]
+  fast_fs: 1000
+  medium_fs: 100
+  slow_fs: 32
+
+input_variants:
+  - features                 # Per-window engineered features (same input as LightGBM)
+  - raw                      # Multimodal raw signals (uses fusion above)
+  # Variant A tests "is NN-feature-interaction better than LightGBM-feature-interaction?"
+  # Variant B tests "is learned representation better than hand-crafted features?"
+
+architectures:
+  - name: cnn1d
+    repr_dim: 128
+    dropout: 0.3
+  - name: lstm
+    repr_dim: 128
+    hidden: 128
+    n_layers: 2
+    bidirectional: true       # research-only; deploy uses unidirectional variant
+  - name: cnn_lstm
+    repr_dim: 128
+    lstm_hidden: 128
+    bidirectional: true
+  - name: tcn
+    repr_dim: 128
+    channels: [64, 64, 128, 128]
+    kernel_size: 5
+    dropout: 0.2
+
+multitask_structure:
+  default: hard_sharing       # one encoder + 4 task heads (recommended for low-data)
+  ablation: soft_sharing      # 4 separate encoders; tested ONLY on the winning architecture
+  ablation_trigger: any_task_negative_transfer  # also run if hard sharing fails on a single task
+
+training:
+  batch_size: 64
+  epochs: 50
+  patience: 8                # early stopping
+  lr: 1e-3
+  weight_decay: 1e-4
+  optimizer: adamw
+  lr_schedule: cosine
+  mixed_precision: true
+  grad_clip: 1.0
+  uncertainty_weighting: false  # set true to use Kendall et al. 2018
+
+multitask_loss_weights:
+  exercise: 1.0
+  phase: 1.0
+  fatigue: 1.0
+  reps: 0.5                  # often dominates if not down-weighted
+
+cv:
+  reuse_baseline_splits: true   # MUST reuse configs/splits.csv from /train
+
+# Two-phase strategy to keep compute manageable
+phase_1_screening:
+  enabled: true
+  cv_scheme: groupkfold
+  n_splits: 5
+  n_seeds: 1
+  goal: identify top 2-3 of the 8 variants
+
+phase_2_final:
+  enabled: true
+  cv_scheme: loso             # auto-switches to GroupKFold(5) if N > 24
+  n_seeds: 3
+  selected_variants: auto     # top 2-3 from phase 1
+
+hp_tuning:
+  enabled: true
+  n_trials: 30
+  inner_cv_n_splits: 3       # GroupKFold inside outer fold
+
+deployment:
+  only_causal: true          # filter out BiLSTM, non-causal CNN-LSTM from deployment recommendation
+  latency_budget_p99_ms: 100
+
+artifacts:
+  save_per_fold_checkpoints: true
+  save_history: true
+  save_per_subject_breakdown: true
+

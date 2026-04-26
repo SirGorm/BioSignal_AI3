@@ -1,0 +1,64 @@
+{
+  "arch": "tcn",
+  "soft_sharing": {
+    "exercise": {
+      "f1_macro": {
+        "mean": 0.3114129763903708,
+        "std": 0.009686676255437676,
+        "n": 2
+      }
+    },
+    "phase": {
+      "f1_macro": {
+        "mean": 0.23164519792360866,
+        "std": 0.06098125280822621,
+        "n": 2
+      }
+    },
+    "fatigue": {
+      "mae": {
+        "mean": 1.0104196869447457,
+        "std": 0.10675424771110964,
+        "n": 2
+      }
+    },
+    "reps": {
+      "mae": {
+        "mean": 3.729563442115704,
+        "std": 0.6152126058997902,
+        "n": 2
+      }
+    }
+  },
+  "hard_sharing": {
+    "exercise": {
+      "f1_macro": {
+        "mean": 0.26883757913617795,
+        "std": 0.03650441256615955,
+        "n": 2
+      }
+    },
+    "phase": {
+      "f1_macro": {
+        "mean": 0.23104514238466006,
+        "std": 0.0391373403708941,
+        "n": 2
+      }
+    },
+    "fatigue": {
+      "mae": {
+        "mean": 1.0922962321578145,
+        "std": 0.05970028949563866,
+        "n": 2
+      }
+    },
+    "reps": {
+      "mae": {
+        "mean": 3.749212403778043,
+        "std": 0.7939568270823616,
+        "n": 2
+      }
+    }
+  },
+  "verdict": "Soft sharing improved: soft-sharing improved exercise by 0.043; soft-sharing improved fatigue by 0.082"
+}

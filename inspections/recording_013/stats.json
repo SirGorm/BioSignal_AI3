@@ -1,0 +1,382 @@
+{
+  "recording": "recording_013",
+  "participant": "Juile",
+  "channels": {
+    "ecg": {
+      "name": "ecg",
+      "fs_hz": 499.9766360710454,
+      "n_samples": 1131424,
+      "duration_s": 2262.845999956131,
+      "t_unix_start": 1773344193.97776,
+      "t_unix_end": 1773346456.82376,
+      "mean": 2.6058634022005748e-08,
+      "std": 0.0010959939654065322,
+      "min": -0.0054347295346467,
+      "max": 0.0055363132642663,
+      "p1": -0.0031342083474864,
+      "p99": 0.0031771187160326,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 8.838419549169896e-05
+    },
+    "emg": {
+      "name": "emg",
+      "fs_hz": 2000.144969003338,
+      "n_samples": 4525808,
+      "duration_s": 2262.90349984169,
+      "t_unix_start": 1773344193.97776,
+      "t_unix_end": 1773346456.88126,
+      "mean": 4.240832763187303e-09,
+      "std": 0.00030678892075103564,
+      "min": -0.0044797549040421,
+      "max": 0.0040804257600203,
+      "p1": -0.0009234486455502,
+      "p99": 0.0009024313221807,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 2.2095502062836073e-05
+    },
+    "eda": {
+      "name": "eda",
+      "fs_hz": 50.000047683761295,
+      "n_samples": 113145,
+      "duration_s": 2262.8799998760223,
+      "t_unix_start": 1773344193.97776,
+      "t_unix_end": 1773346456.85776,
+      "mean": 2.4533110567956296e-07,
+      "std": 3.4111690929176126e-09,
+      "min": 2.3277263494492217e-07,
+      "max": 2.5737460873642704e-07,
+      "p1": 2.3639730557079022e-07,
+      "p99": 2.546579332829424e-07,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.015908789606257457
+    },
+    "temperature": {
+      "name": "temperature",
+      "status": "empty_or_missing"
+    },
+    "ppg_green": {
+      "name": "ppg_green",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 226292,
+      "duration_s": 2262.909999847412,
+      "t_unix_start": 1773344193.97776,
+      "t_unix_end": 1773346456.88776,
+      "mean": 6092.948492913007,
+      "std": 242.67737228011256,
+      "min": 5029.99971,
+      "max": 6629.151900000001,
+      "p1": 5414.466450000001,
+      "p99": 6544.0166967000005,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.027398228837077758
+    },
+    "ppg_blue": {
+      "name": "ppg_blue",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 226292,
+      "duration_s": 2262.909999847412,
+      "t_unix_start": 1773344193.97776,
+      "t_unix_end": 1773346456.88776,
+      "mean": 7091.235200667987,
+      "std": 116.64658596170987,
+      "min": 6608.61408,
+      "max": 7371.54564,
+      "p1": 6783.6828966,
+      "p99": 7313.221513500001,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.05612217842433669
+    },
+    "ppg_red": {
+      "name": "ppg_red",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 226292,
+      "duration_s": 2262.909999847412,
+      "t_unix_start": 1773344193.97776,
+      "t_unix_end": 1773346456.88776,
+      "mean": 6566.314066976651,
+      "std": 106.81678054479258,
+      "min": 6204.938070000001,
+      "max": 6814.44555,
+      "p1": 6349.98447,
+      "p99": 6771.291120000001,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.00795432450108709
+    },
+    "ppg_ir": {
+      "name": "ppg_ir",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 226292,
+      "duration_s": 2262.909999847412,
+      "t_unix_start": 1773344193.97776,
+      "t_unix_end": 1773346456.88776,
+      "mean": 5543.694467030341,
+      "std": 167.85870388693775,
+      "min": 4958.0235600000005,
+      "max": 5874.94188,
+      "p1": 5187.794563200001,
+      "p99": 5837.601810000001,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.09280045251268274
+    },
+    "ax": {
+      "name": "ax",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 226296,
+      "duration_s": 2262.949999809265,
+      "t_unix_start": 1773344193.97776,
+      "t_unix_end": 1773346456.92776,
+      "mean": 3.4238460772771098,
+      "std": 6.947882855331989,
+      "min": -65.41666534423828,
+      "max": 53.41265437602997,
+      "p1": -10.950145305633546,
+      "p99": 11.89383071422577,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.0004418991055962103
+    },
+    "ay": {
+      "name": "ay",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 226296,
+      "duration_s": 2262.949999809265,
+      "t_unix_start": 1773344193.97776,
+      "t_unix_end": 1773346456.92776,
+      "mean": -3.1715865385153195,
+      "std": 3.1113570836333375,
+      "min": -43.9751968574524,
+      "max": 53.35157202243805,
+      "p1": -9.059000578522683,
+      "p99": 6.978867789655882,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.0004418991055962103
+    },
+    "az": {
+      "name": "az",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 226296,
+      "duration_s": 2262.949999809265,
+      "t_unix_start": 1773344193.97776,
+      "t_unix_end": 1773346456.92776,
+      "mean": 3.3900356924565664,
+      "std": 3.0390344901969026,
+      "min": -22.283416085243225,
+      "max": 44.37042185783386,
+      "p1": -4.885261217907072,
+      "p99": 10.336950139045701,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.0004418991055962103
+    },
+    "acc_mag": {
+      "name": "acc_mag",
+      "fs_hz": 100.00009536752259,
+      "n_samples": 226296,
+      "duration_s": 2262.949999809265,
+      "t_unix_start": 1773344193.97776,
+      "t_unix_end": 1773346456.92776,
+      "mean": 9.951804562252875,
+      "std": 1.1937172148074546,
+      "min": 0.4544339710412084,
+      "max": 95.36490275708144,
+      "p1": 6.5924301761080555,
+      "p99": 14.041995237612701,
+      "n_nan": 0,
+      "pct_nan": 0.0,
+      "pct_at_clip": 0.0004418991055962103
+    }
+  },
+  "sets_from_markers": 12,
+  "sets_from_acc": 29,
+  "sets_from_metadata": 12,
+  "sets_from_participants": 12,
+  "bio_t0_unix": 1773344193.97776,
+  "bio_duration_s": 2262.845999956131,
+  "joint_coverage": [
+    {
+      "set_number": 1,
+      "joint_file": "recording_01_joints.json",
+      "n_frames": 630
+    },
+    {
+      "set_number": 2,
+      "joint_file": "recording_02_joints.json",
+      "n_frames": 768
+    },
+    {
+      "set_number": 3,
+      "joint_file": "recording_03_joints.json",
+      "n_frames": 771
+    },
+    {
+      "set_number": 4,
+      "joint_file": "recording_04_joints.json",
+      "n_frames": 655
+    },
+    {
+      "set_number": 5,
+      "joint_file": "recording_05_joints.json",
+      "n_frames": 534
+    },
+    {
+      "set_number": 6,
+      "joint_file": "recording_06_joints.json",
+      "n_frames": 723
+    },
+    {
+      "set_number": 7,
+      "joint_file": "recording_07_joints.json",
+      "n_frames": 547
+    },
+    {
+      "set_number": 8,
+      "joint_file": "recording_08_joints.json",
+      "n_frames": 563
+    },
+    {
+      "set_number": 9,
+      "joint_file": "recording_09_joints.json",
+      "n_frames": 565
+    },
+    {
+      "set_number": 10,
+      "joint_file": "recording_10_joints.json",
+      "n_frames": 400
+    },
+    {
+      "set_number": 11,
+      "joint_file": "recording_11_joints.json",
+      "n_frames": 632
+    },
+    {
+      "set_number": 12,
+      "joint_file": "recording_12_joints.json",
+      "n_frames": 592
+    }
+  ],
+  "sets": [
+    {
+      "set_number": 1,
+      "start_unix": 1773344334.8543746,
+      "end_unix": 1773344364.893257,
+      "duration_s": 30.0388822555542,
+      "n_reps": 8
+    },
+    {
+      "set_number": 2,
+      "start_unix": 1773344502.1240072,
+      "end_unix": 1773344538.7940516,
+      "duration_s": 36.67004442214966,
+      "n_reps": 10
+    },
+    {
+      "set_number": 3,
+      "start_unix": 1773344678.7241495,
+      "end_unix": 1773344715.4429066,
+      "duration_s": 36.71875715255737,
+      "n_reps": 10
+    },
+    {
+      "set_number": 4,
+      "start_unix": 1773344883.4822075,
+      "end_unix": 1773344914.5359619,
+      "duration_s": 31.053754329681396,
+      "n_reps": 8
+    },
+    {
+      "set_number": 5,
+      "start_unix": 1773345058.7613835,
+      "end_unix": 1773345084.2213302,
+      "duration_s": 25.459946632385254,
+      "n_reps": 8
+    },
+    {
+      "set_number": 6,
+      "start_unix": 1773345222.335114,
+      "end_unix": 1773345256.7916362,
+      "duration_s": 34.45652222633362,
+      "n_reps": 10
+    },
+    {
+      "set_number": 7,
+      "start_unix": 1773345463.3015287,
+      "end_unix": 1773345489.284154,
+      "duration_s": 25.982625246047974,
+      "n_reps": 7
+    },
+    {
+      "set_number": 8,
+      "start_unix": 1773345621.4454138,
+      "end_unix": 1773345648.1584215,
+      "duration_s": 26.71300768852234,
+      "n_reps": 10
+    },
+    {
+      "set_number": 9,
+      "start_unix": 1773345779.789649,
+      "end_unix": 1773345806.703775,
+      "duration_s": 26.91412591934204,
+      "n_reps": 10
+    },
+    {
+      "set_number": 10,
+      "start_unix": 1773345958.1257775,
+      "end_unix": 1773345984.9499967,
+      "duration_s": 26.824219226837158,
+      "n_reps": 8
+    },
+    {
+      "set_number": 11,
+      "start_unix": 1773346121.5477867,
+      "end_unix": 1773346151.7937982,
+      "duration_s": 30.24601149559021,
+      "n_reps": 8
+    },
+    {
+      "set_number": 12,
+      "start_unix": 1773346297.2055995,
+      "end_unix": 1773346325.4648411,
+      "duration_s": 28.259241580963135,
+      "n_reps": 8
+    }
+  ],
+  "participants": {
+    "name": "Juile",
+    "exercises": [
+      "deadlift",
+      "deadlift",
+      "deadlift",
+      "squat",
+      "squat",
+      "squat",
+      "benchpress",
+      "benchpress",
+      "benchpress",
+      "pullup",
+      "pullup",
+      "pullup"
+    ],
+    "rpe": [
+      4,
+      5,
+      7,
+      5,
+      7,
+      7,
+      8,
+      7,
+      7,
+      7,
+      8,
+      9
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+recording_id,subject_id,split
+recording_003,Vivian,train
+recording_005,Elias,train
+recording_007,sivert,train
+recording_008,michael,train
+recording_009,lucas,train
+recording_010,kiyomi,train
+recording_011,lucas 2,train
+recording_012,Tias,train
+recording_013,Juile,train
+recording_014,Raghild,train
+recording_001,Gorm,test
+recording_002,Gorm,test
+recording_004,Gorm,test

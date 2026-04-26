@@ -1,0 +1,58 @@
+# Raw recordings (too large for GitHub - keep in external storage)
+dataset/
+
+# Generated artifacts (regenerable from /label and /train)
+data/labeled/
+runs/*/features/
+runs/*/models/
+runs/*/plots/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Test/cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Windows "Copy of" duplicates created when files are duplicated in Explorer
+*\(1\).md
+*\(1\).sh
+*\(1\).json
+*\(1\).py
+*\(1\).yaml
+*\(1\).yml
+
+# Large parquet/csv outputs
+*.parquet
+!runs/*/metrics*.json
+
+# Logs
+*.log
+
+# Local Claude settings overrides
+.claude/settings.local.json
