@@ -1,66 +1,46 @@
 fold,recording_id,subject_id,split
-0,recording_003,Vivian,train
-0,recording_005,Elias,train
-0,recording_007,sivert,train
+0,recording_006,Hytten,train
 0,recording_008,michael,train
 0,recording_009,lucas,train
 0,recording_010,kiyomi,train
 0,recording_011,lucas 2,train
-0,recording_012,Tias,train
 0,recording_013,Juile,train
 0,recording_014,Raghild,train
-0,recording_001,Gorm,test
-0,recording_002,Gorm,test
-0,recording_004,Gorm,test
-1,recording_001,Gorm,train
-1,recording_002,Gorm,train
-1,recording_004,Gorm,train
-1,recording_005,Elias,train
+0,recording_007,sivert,test
+0,recording_012,Tias,test
+1,recording_006,Hytten,train
 1,recording_007,sivert,train
 1,recording_009,lucas,train
 1,recording_010,kiyomi,train
 1,recording_011,lucas 2,train
 1,recording_012,Tias,train
-1,recording_014,Raghild,train
-1,recording_003,Vivian,test
+1,recording_013,Juile,train
 1,recording_008,michael,test
-1,recording_013,Juile,test
-2,recording_001,Gorm,train
-2,recording_002,Gorm,train
-2,recording_003,Vivian,train
-2,recording_004,Gorm,train
+1,recording_014,Raghild,test
+2,recording_006,Hytten,train
+2,recording_007,sivert,train
 2,recording_008,michael,train
 2,recording_009,lucas,train
-2,recording_011,lucas 2,train
+2,recording_010,kiyomi,train
 2,recording_012,Tias,train
-2,recording_013,Juile,train
 2,recording_014,Raghild,train
-2,recording_005,Elias,test
-2,recording_007,sivert,test
-2,recording_010,kiyomi,test
-3,recording_001,Gorm,train
-3,recording_002,Gorm,train
-3,recording_003,Vivian,train
-3,recording_004,Gorm,train
-3,recording_005,Elias,train
+2,recording_011,lucas 2,test
+2,recording_013,Juile,test
 3,recording_007,sivert,train
 3,recording_008,michael,train
-3,recording_009,lucas,train
 3,recording_010,kiyomi,train
+3,recording_011,lucas 2,train
+3,recording_012,Tias,train
 3,recording_013,Juile,train
 3,recording_014,Raghild,train
-3,recording_011,lucas 2,test
-3,recording_012,Tias,test
-4,recording_001,Gorm,train
-4,recording_002,Gorm,train
-4,recording_003,Vivian,train
-4,recording_004,Gorm,train
-4,recording_005,Elias,train
+3,recording_006,Hytten,test
+3,recording_009,lucas,test
+4,recording_006,Hytten,train
 4,recording_007,sivert,train
 4,recording_008,michael,train
-4,recording_010,kiyomi,train
+4,recording_009,lucas,train
 4,recording_011,lucas 2,train
 4,recording_012,Tias,train
 4,recording_013,Juile,train
-4,recording_009,lucas,test
-4,recording_014,Raghild,test
+4,recording_014,Raghild,train
+4,recording_010,kiyomi,test

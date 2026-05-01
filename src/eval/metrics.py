@@ -43,9 +43,16 @@ def compute_all_metrics(
                             'balanced_accuracy': float('nan'), 'n': 0}
 
     # --- phase ---
+    # Supports both hard (long-index target) and soft (probability-vector
+    # target). For soft, take argmax of the target to recover discrete labels
+    # so that F1 / balanced-accuracy stay comparable across hard/soft runs.
     m = masks['phase'].numpy().astype(bool)
     if m.sum() > 0:
-        y_true = targets['phase'].numpy()[m]
+        target_phase = targets['phase']
+        if target_phase.dim() == 2:
+            y_true = target_phase.argmax(dim=-1).numpy()[m]
+        else:
+            y_true = target_phase.numpy()[m]
         y_pred = preds['phase'].argmax(dim=-1).numpy()[m]
         out['phase'] = {
             'f1_macro': float(f1_score(y_true, y_pred, average='macro',
@@ -88,6 +95,48 @@ def compute_all_metrics(
         out['reps'] = {'mae': float('nan'), 'n': 0}
 
     return out
+
+
+def per_set_rep_count_metrics(
+    window_preds: np.ndarray,
+    set_ids: np.ndarray,
+    true_rep_counts_per_set: Dict[object, int],
+    hop_s: float = 0.1,
+    window_s: float = 2.0,
+) -> Dict[str, float]:
+    """Per-set integer rep-count metrics for the soft_window training mode.
+
+    Aggregates the model's per-window soft predictions into one integer per
+    set (see src/eval/rep_aggregation.py) and compares to the ground-truth
+    rep count derived from rep_markers / joint angles.
+
+    Returns
+    -------
+    dict with:
+        set_count_mae             — mean |pred - true| over evaluated sets
+        set_count_off_by_one_rate — fraction of sets with |pred - true| <= 1
+        n_sets                    — number of sets evaluated
+
+    Returns NaN metrics if no sets can be matched.
+    """
+    from src.eval.rep_aggregation import soft_to_set_counts_grouped
+
+    pred_counts = soft_to_set_counts_grouped(
+        window_preds, set_ids, hop_s=hop_s, window_s=window_s,
+    )
+    pairs = [(pred_counts[sid], true_rep_counts_per_set[sid])
+             for sid in pred_counts
+             if sid in true_rep_counts_per_set]
+    if not pairs:
+        return {'set_count_mae': float('nan'),
+                'set_count_off_by_one_rate': float('nan'),
+                'n_sets': 0}
+    diffs = np.abs(np.array([p - t for p, t in pairs], dtype=float))
+    return {
+        'set_count_mae': float(diffs.mean()),
+        'set_count_off_by_one_rate': float((diffs <= 1).mean()),
+        'n_sets': len(pairs),
+    }
 
 
 def per_subject_breakdown(

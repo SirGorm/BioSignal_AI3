@@ -250,6 +250,65 @@ def build_aligned_dataframe(
 # Set-info array builder
 # ---------------------------------------------------------------------------
 
+def _rep_boundaries_from_joint(
+    jdf: pd.DataFrame,
+) -> list[float]:
+    """Extract rep-end timestamps from a joint-angle DataFrame.
+
+    `rep_count_in_set` is monotonic non-decreasing; each step (count k-1 -> k)
+    marks the completion time of rep k. Returns the list of completion times.
+    """
+    if jdf is None or len(jdf) == 0 or "rep_count_in_set" not in jdf.columns:
+        return []
+    jr = jdf["rep_count_in_set"].to_numpy(dtype=float)
+    jt = jdf["t_unix"].to_numpy(dtype=float)
+    boundaries: list[float] = []
+    prev_count = 0
+    for i in range(len(jr)):
+        c = jr[i]
+        if not np.isfinite(c):
+            continue
+        ci = int(c)
+        if ci > prev_count:
+            boundaries.append(float(jt[i]))
+            prev_count = ci
+    return boundaries
+
+
+def _fill_rep_density_hz(
+    grid_t: np.ndarray,
+    indices: np.ndarray,
+    set_start: float,
+    rep_boundaries: list[float],
+    out: np.ndarray,
+) -> None:
+    """Write per-sample rep-density (Hz) into `out` for samples in `indices`.
+
+    rep_boundaries[k] is the END time of rep k (1-indexed). Rep k spans
+        [prev, rep_boundaries[k]],  prev = set_start for k=1, else rep_boundaries[k-1].
+    Density during rep k = 1 / (boundary_k - prev). Outside any rep: 0.
+
+    Integrating density over a window therefore yields the (fractional) number
+    of reps captured in that window — the soft rep-detection target used by
+    the model. Marker convention is 'end-of-rep'; if you switch to start-of-rep
+    markers, shift boundaries before calling.
+    """
+    if not rep_boundaries:
+        return
+    t_in_set = grid_t[indices]
+    prev = float(set_start)
+    for boundary in rep_boundaries:
+        dur = boundary - prev
+        if dur <= 0:
+            prev = boundary
+            continue
+        d_hz = 1.0 / dur
+        local_mask = (t_in_set >= prev) & (t_in_set <= boundary)
+        if local_mask.any():
+            out[indices[local_mask]] = d_hz
+        prev = boundary
+
+
 def build_set_info_array(
     grid_t: np.ndarray,
     canonical_sets: list,          # list of SetMarker
@@ -274,7 +333,7 @@ def build_set_info_array(
     -------
     DataFrame with columns:
         in_active_set, set_number, exercise, rpe_for_this_set,
-        set_phase, rep_count_in_set, rep_index
+        set_phase, rep_count_in_set, rep_index, rep_density_hz
     """
     n = len(grid_t)
 
@@ -285,6 +344,7 @@ def build_set_info_array(
     set_phase_arr = np.full(n, "rest", dtype=object)
     rep_count_arr = np.full(n, np.nan, dtype=float)
     rep_index_arr = np.full(n, np.nan, dtype=float)
+    rep_density_arr = np.zeros(n, dtype=float)
 
     for pos_idx, sm in enumerate(canonical_sets):
         # Position in canonical list (0-based) maps to Participants.xlsx set slot
@@ -320,25 +380,43 @@ def build_set_info_array(
             else:
                 set_phase_arr[gi] = "end"
 
-        # Rep count from marker-based rep timing
-        if sm.rep_markers:
+        # Rep count: prefer joint-angle timing (precise per-rep extrema)
+        # over marker timing (manual button-presses, count-accurate but
+        # timing-imprecise). count_reps_from_angles in run.py was called
+        # with target_n_reps=sm.n_reps so when joint data is usable, the
+        # max of jdf['rep_count_in_set'] equals sm.n_reps. When the joint
+        # detector returns all-zeros (signal poverty / Kinect tracking
+        # failed / acc-fallback case), max is 0 and we fall back to
+        # markers, then to acc-based phase if even markers are missing.
+        jdf = joint_angle_dfs.get(sm.set_num)
+        joint_max = 0
+        if jdf is not None and len(jdf) > 0 and "rep_count_in_set" in jdf.columns:
+            jr_full = jdf["rep_count_in_set"].to_numpy(dtype=float)
+            if len(jr_full) > 0 and np.isfinite(jr_full).any():
+                joint_max = int(np.nanmax(jr_full))
+
+        if joint_max > 0:
+            # Joint-angle primary: rep timing follows the actual movement
+            jt = jdf["t_unix"].to_numpy(dtype=float)
+            jr = jdf["rep_count_in_set"].to_numpy(dtype=float)
+            resampled = _resample_nearest(jt, jr, grid_t[indices])
+            rep_count_arr[indices] = resampled
+            rep_index_arr[indices] = np.where(resampled > 0, resampled, np.nan)
+            rep_boundaries = _rep_boundaries_from_joint(jdf)
+            _fill_rep_density_hz(grid_t, indices, sm.start_unix,
+                                  rep_boundaries, rep_density_arr)
+        elif sm.rep_markers:
+            # Marker fallback: manual rep timing (precise count, ±1s timing)
             rep_times = sorted([r.unix_time for r in sm.rep_markers])
             for gi in indices:
                 t = grid_t[gi]
                 passed = sum(1 for rt in rep_times if t >= rt)
                 rep_count_arr[gi] = passed
-                # rep_index = which rep is in progress (0 before first rep marker)
-                rep_idx_val = passed  # rep 1 is the rep after the first marker
+                rep_idx_val = passed
                 rep_index_arr[gi] = rep_idx_val if rep_idx_val > 0 else np.nan
-        else:
-            # No rep markers — use joint angles if available
-            jdf = joint_angle_dfs.get(sm.set_num)
-            if jdf is not None and len(jdf) > 0 and "rep_count_in_set" in jdf.columns:
-                jt = jdf["t_unix"].to_numpy(dtype=float)
-                jr = jdf["rep_count_in_set"].to_numpy(dtype=float)
-                resampled = _resample_nearest(jt, jr, grid_t[indices])
-                rep_count_arr[indices] = resampled
-                rep_index_arr[indices] = np.where(resampled > 0, resampled, np.nan)
+            # marker_position='end' convention: boundary k = marker k unix_time
+            _fill_rep_density_hz(grid_t, indices, sm.start_unix,
+                                  rep_times, rep_density_arr)
 
     df = pd.DataFrame({
         "in_active_set": in_active,
@@ -348,6 +426,7 @@ def build_set_info_array(
         "set_phase": set_phase_arr,
         "rep_count_in_set": rep_count_arr,
         "rep_index": rep_index_arr,
+        "rep_density_hz": rep_density_arr,
     })
 
     return df

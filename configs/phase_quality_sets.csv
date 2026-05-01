@@ -1,0 +1,124 @@
+# Phase-head quality whitelist.
+#
+# List the (recording_id, set_number) pairs whose phase_label is clean enough
+# to use as supervision for the phase head. Sets NOT listed here will be
+# masked out of the phase loss/eval — but still contribute to exercise,
+# fatigue, and reps. Curate after eyeballing the per-set plots from
+# /verify-labels-command.
+#
+# Comments (lines starting with #) and blank rows are ignored.
+# Pass this file via --phase-whitelist configs/phase_quality_sets.csv.
+#
+# Canonical set counts after manual marker exclusions in
+# src/labeling/run.py:_MANUAL_MARKER_EXCLUSIONS:
+#   recording_006-007, 010-014: 12 canonical sets
+#   recording_008: 11 canonical sets (orig markers 8, 9 dropped)
+#   recording_009:  9 canonical sets (orig markers 10-14 dropped)
+recording_id,set_number
+recording_006,1
+recording_006,2
+recording_006,3
+#recording_006,4
+#recording_006,5
+#recording_006,6
+recording_006,7
+#recording_006,8
+#recording_006,9
+recording_006,10
+recording_006,11
+recording_006,12
+recording_007,1
+recording_007,2
+recording_007,3
+recording_007,4
+recording_007,5
+recording_007,6
+#recording_007,7
+#recording_007,8
+#recording_007,9
+recording_007,10
+recording_007,11
+recording_007,12
+recording_008,1
+recording_008,2
+#recording_008,3
+recording_008,4
+recording_008,5
+recording_008,6
+#recording_008,7
+recording_008,8
+recording_008,9
+recording_008,10
+recording_008,11
+# recording_008 has only 11 canonical sets after exclusion of orig markers 8,9
+recording_009,1
+recording_009,2
+recording_009,3
+recording_009,4
+recording_009,5
+recording_009,6
+recording_009,7
+recording_009,8
+recording_009,9
+# recording_009 has only 9 canonical sets after exclusion of orig markers 10-14
+# (no pullup data for this subject)
+recording_010,1
+recording_010,2
+recording_010,3
+recording_010,4
+recording_010,5
+recording_010,6
+recording_010,7
+recording_010,8
+recording_010,9
+recording_010,10
+recording_010,11
+recording_010,12
+recording_011,1
+recording_011,2
+recording_011,3
+recording_011,4
+recording_011,5
+recording_011,6
+recording_011,7
+recording_011,8
+recording_011,9
+#recording_011,10
+recording_011,11
+recording_011,12
+recording_012,1
+recording_012,2
+recording_012,3
+recording_012,4
+recording_012,5
+recording_012,6
+recording_012,7
+recording_012,8
+recording_012,9
+recording_012,10
+recording_012,11
+recording_012,12
+recording_013,1
+recording_013,2
+recording_013,3
+recording_013,4
+recording_013,5
+recording_013,6
+recording_013,7
+recording_013,8
+recording_013,9
+recording_013,10
+recording_013,11
+recording_013,12
+recording_014,1
+recording_014,2
+recording_014,3
+recording_014,4
+recording_014,5
+recording_014,6
+#recording_014,7
+recording_014,8
+recording_014,9
+recording_014,10
+recording_014,11
+#recording_014,12

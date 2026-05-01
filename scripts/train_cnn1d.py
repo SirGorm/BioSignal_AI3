@@ -34,6 +34,8 @@ def main():
         batch_size=args.batch_size,
         lr=args.lr,
         smoke_test=args.smoke_test,
+        use_uncertainty_weighting=args.uncertainty_weighting,
+        phase_whitelist_path=args.phase_whitelist,
     )
 
 

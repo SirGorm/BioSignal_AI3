@@ -29,6 +29,11 @@ import pandas as pd
 from scipy.ndimage import uniform_filter1d
 from scipy.signal import welch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.eval.plot_style import apply_style, despine
+
+apply_style()
+
 ROOT = Path("c:/MasterProject/Code_v1/strength-rt-v2")
 DATASET = ROOT / "dataset"
 PARTICIPANTS_XLSX = DATASET / "Participants" / "Participants.xlsx"
@@ -289,6 +294,7 @@ def inspect(rec_id: str) -> None:
     axes[-1].set_xlabel("Session time [min]")
     plt.suptitle(f"{rec_dir.name} — full session ({participants['name']})")
     plt.tight_layout()
+    despine()
     plt.savefig(out_dir / "signal_overview.png", dpi=110)
     plt.close()
 
@@ -316,6 +322,7 @@ def inspect(rec_id: str) -> None:
         axes[-1].set_xlabel(f"Time relative to set 1 start [s]  (set duration {s1['end_unix'] - s1['start_unix']:.1f}s)")
         plt.suptitle(f"{rec_dir.name} — set 1 zoom (red lines = reps)")
         plt.tight_layout()
+        despine()
         plt.savefig(out_dir / "signal_zoomed_set1.png", dpi=110)
         plt.close()
 
@@ -336,6 +343,7 @@ def inspect(rec_id: str) -> None:
         ax.set_title(f"PPG channels (30s rest @ ~min 1) — {rec_dir.name}")
         ax.legend()
         plt.tight_layout()
+        despine()
         plt.savefig(out_dir / "ppg_channel_check.png", dpi=110)
         plt.close()
 
@@ -361,6 +369,7 @@ def inspect(rec_id: str) -> None:
                 ax.axvline(hz, color="red", ls="--", alpha=0.4, lw=0.8)
         ax.grid(alpha=0.3, which="both")
         plt.tight_layout()
+        despine()
         plt.savefig(out_dir / f"psd_{mod}.png", dpi=110)
         plt.close()
 
@@ -378,6 +387,7 @@ def inspect(rec_id: str) -> None:
     ax.set_xlabel("Session time [min]")
     ax.set_title(f"Timestamp coverage (Unix anchored)  — bio start {datetime.fromtimestamp(bio_t0, tz=timezone.utc):%Y-%m-%d %H:%M:%S} UTC")
     plt.tight_layout()
+    despine()
     plt.savefig(out_dir / "timestamp_alignment.png", dpi=110)
     plt.close()
 
@@ -399,6 +409,7 @@ def inspect(rec_id: str) -> None:
         ax.set_title(f"Sets: markers={len(sets)}, acc-detected={len(acc_segments)}")
         ax.legend(loc="upper right")
         plt.tight_layout()
+        despine()
         plt.savefig(out_dir / "sets_detected.png", dpi=110)
         plt.close()
 
@@ -418,6 +429,7 @@ def inspect(rec_id: str) -> None:
     ax.set_yticks([])
     ax.set_title(f"Joint-skeleton file coverage per set — {rec_dir.name}")
     plt.tight_layout()
+    despine()
     plt.savefig(out_dir / "joint_coverage.png", dpi=110)
     plt.close()
 

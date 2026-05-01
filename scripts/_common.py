@@ -27,10 +27,12 @@ import torch
 import torch.nn as nn
 
 from src.data.datasets import WindowFeatureDataset
+from src.data.phase_whitelist import load_phase_whitelist
 from src.models.cnn1d import CNN1DMultiTask
 from src.models.lstm import LSTMMultiTask
 from src.models.cnn_lstm import CNNLSTMMultiTask
 from src.models.tcn import TCNMultiTask
+from src.models.mlp import MLPMultiTask
 from src.training.cv import load_or_generate_splits
 from src.training.loop import TrainConfig, run_cv
 
@@ -42,6 +44,7 @@ ARCH_REGISTRY = {
     'lstm':     LSTMMultiTask,
     'cnn_lstm': CNNLSTMMultiTask,
     'tcn':      TCNMultiTask,
+    'mlp':      MLPMultiTask,
 }
 
 
@@ -89,6 +92,8 @@ def run_training(
     batch_size: int = 64,
     lr: float = 1e-3,
     smoke_test: bool = False,
+    use_uncertainty_weighting: bool = False,
+    phase_whitelist_path: Optional[Path] = None,
 ):
     if smoke_test:
         seeds = (42,)
@@ -103,7 +108,17 @@ def run_training(
 
     win_paths = find_window_feature_files(labeled_root)
     print(f"[run] Loading {len(win_paths)} window_features.parquet file(s)")
-    dataset = WindowFeatureDataset(window_parquets=win_paths, active_only=True)
+
+    phase_whitelist = load_phase_whitelist(phase_whitelist_path)
+    if phase_whitelist is not None:
+        print(f"[run] Phase whitelist: {phase_whitelist_path} "
+              f"({len(phase_whitelist)} (recording, set) pairs)")
+
+    dataset = WindowFeatureDataset(
+        window_parquets=win_paths,
+        active_only=True,
+        phase_whitelist=phase_whitelist,
+    )
     print(f"[run] Dataset: {len(dataset)} windows, {dataset.n_features} features, "
           f"{dataset.n_exercise} exercise classes, {dataset.n_phase} phase classes.")
 
@@ -139,6 +154,7 @@ def run_training(
         epochs=epochs, batch_size=batch_size, lr=lr,
         weight_decay=1e-4, grad_clip=1.0, patience=8,
         mixed_precision=True, num_workers=2,
+        use_uncertainty_weighting=use_uncertainty_weighting,
     )
     with open(run_dir / 'train_config.json', 'w') as f:
         json.dump(cfg.__dict__, f, indent=2)
@@ -172,4 +188,12 @@ def parse_common_args():
     p.add_argument('--lr', type=float, default=1e-3)
     p.add_argument('--smoke-test', action='store_true',
                    help='1 seed × 1 fold × 3 epochs (verify pipeline only)')
+    p.add_argument('--uncertainty-weighting', action='store_true',
+                   help='Use Kendall et al. 2018 learnable log-variance task weighting')
+    p.add_argument('--phase-whitelist', type=Path, default=None,
+                   help='CSV of (recording_id, set_number) pairs whose '
+                        'phase_label is clean enough to train on. Sets not '
+                        'listed are masked out of phase loss/eval but still '
+                        'contribute to exercise/fatigue/reps. '
+                        'See configs/phase_quality_sets.csv for the format.')
     return p

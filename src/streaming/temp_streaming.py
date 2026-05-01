@@ -128,7 +128,13 @@ class StreamingTempExtractor:
         t_rel = t_arr[valid] - t_arr[valid][0]
         v = win[valid]
         mean = float(np.mean(v))
-        slope = float(np.polyfit(t_rel, v, 1)[0]) if len(v) >= 2 else float("nan")
+        if len(v) >= 2 and (t_rel[-1] - t_rel[0]) > 0 and float(np.std(v)) > 0:
+            try:
+                slope = float(np.polyfit(t_rel, v, 1)[0])
+            except (np.linalg.LinAlgError, ValueError):
+                slope = float("nan")
+        else:
+            slope = float("nan")
         rng = float(np.max(v) - np.min(v))
         mean_rel = (mean / self._baseline_mean
                     if not np.isnan(self._baseline_mean) and self._baseline_mean > 0

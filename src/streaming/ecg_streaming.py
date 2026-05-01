@@ -2,14 +2,17 @@
 Causal ECG feature extractor for real-time deployment.
 
 Produces the same features as src/features/ecg_features.py but uses only
-causal operations: sosfilt with persisted zi, rolling RR buffer, and
-online peak detection (Pan & Tompkins 1985).
+causal operations: sosfilt with persisted zi, rolling NN buffer, and
+online peak detection (Pan & Tompkins 1985). Detected RR intervals are
+filtered to NN intervals via a causal Malik-style relative-deviation
+rejector (Malik et al. 1996) — the streaming counterpart to Kubios
+(Lipponen & Tarvainen 2019), which is non-causal and unavailable here.
 
 NO filtfilt, NO savgol_filter, NO find_peaks over the whole signal.
 The hook check-no-filtfilt.sh enforces this.
 
 Features emitted per window (30 s rolling, updated on each hop):
-  ecg_hr, ecg_rmssd, ecg_sdnn, ecg_pnn50, ecg_mean_rr
+  ecg_hr, ecg_rmssd, ecg_sdnn, ecg_pnn50, ecg_mean_rr, ecg_hr_rel
 
 References
 ----------
@@ -17,6 +20,11 @@ References
   IEEE Transactions on Biomedical Engineering, BME-32(3), 230-236.
 - Task Force of the European Society of Cardiology (1996). Heart rate
   variability: standards of measurement. Circulation, 93(5), 1043-1065.
+- Lipponen, J. A., & Tarvainen, M. P. (2019). A robust algorithm for heart
+  rate variability time series artefact correction using novel beat
+  classification. Journal of Medical Engineering & Technology, 43(3), 173-181.
+- Aubert, A. E., Seps, B., & Beckers, F. (2003). Heart rate variability
+  in athletes. Sports Medicine, 33(12), 889-919.
 - Oppenheim, A. V., & Schafer, R. W. (2010). Discrete-Time Signal Processing
   (3rd ed.). Pearson.
 """
@@ -32,8 +40,10 @@ from src.streaming.window_buffer import SlidingWindowBuffer
 
 
 FS_ECG = 500
-RR_BUFFER_S = 30  # keep last 30 s of RR intervals for HRV (Shaffer & Ginsberg 2017)
+RR_BUFFER_S = 30  # keep last 30 s of NN intervals for HRV (Shaffer & Ginsberg 2017)
 HOP_SAMPLES = 50  # 100 ms at 500 Hz
+NN_REL_THRESHOLD = 0.20  # Malik et al. 1996 — drop RR deviating >20% from local median
+NN_LOCAL_WINDOW = 5      # length of trailing-RR median used as local reference
 
 
 class OnlineRPeakDetector:
@@ -108,6 +118,47 @@ class OnlineRPeakDetector:
         self._sample_count = 0
 
 
+class OnlineNNCorrector:
+    """Causal RR → NN converter (Malik et al. 1996).
+
+    Maintains a trailing window of valid NN intervals. When a new RR arrives,
+    compares it to the median of the last ``window`` NN intervals; if the
+    relative deviation exceeds ``threshold``, the RR is treated as artefact
+    and replaced with the local median (preserving statistical contribution
+    without the outlier). When the buffer has fewer than 3 entries, the new
+    RR is accepted as-is (warmup).
+
+    This is the streaming analogue of the Kubios algorithm (Lipponen &
+    Tarvainen 2019), which is non-causal and therefore unavailable in real
+    time. Both reduce HRV bias from missed/extra beats per Task Force 1996.
+    """
+
+    def __init__(
+        self,
+        window: int = NN_LOCAL_WINDOW,
+        threshold: float = NN_REL_THRESHOLD,
+    ) -> None:
+        self._window = window
+        self._threshold = threshold
+        self._recent: deque = deque(maxlen=window)
+
+    def step(self, rr_ms: float) -> float:
+        """Return artefact-corrected NN interval (ms) for the new RR."""
+        if len(self._recent) < 3:
+            self._recent.append(rr_ms)
+            return rr_ms
+        local = float(np.median(self._recent))
+        if abs(rr_ms - local) / max(local, 1.0) > self._threshold:
+            corrected = local
+        else:
+            corrected = rr_ms
+        self._recent.append(corrected)
+        return corrected
+
+    def reset(self) -> None:
+        self._recent.clear()
+
+
 class StreamingECGExtractor:
     """Causal streaming ECG feature extractor.
 
@@ -133,7 +184,12 @@ class StreamingECGExtractor:
         # R-peak detector (Pan & Tompkins 1985)
         self._r_detector = OnlineRPeakDetector(fs)
 
-        # Rolling RR interval buffer (last 30 s).
+        # Causal NN corrector (Malik et al. 1996) — applied to every detected
+        # RR before it enters the HRV buffer, so all downstream features are
+        # computed on artefact-corrected NN intervals (Task Force 1996).
+        self._nn_corrector = OnlineNNCorrector()
+
+        # Rolling NN interval buffer (last 30 s).
         # _rr_buffer and _rr_times are 1:1 — both contain only valid RR intervals.
         # _last_peak_t tracks the time of the most recent R-peak for diff calculation.
         self._rr_buffer: deque = deque()
@@ -192,12 +248,15 @@ class StreamingECGExtractor:
                     rr_ms = (t - self._last_peak_t) * 1000.0
                     # Physiological filter: 300-2000 ms (Shaffer & Ginsberg 2017)
                     if 300.0 < rr_ms < 2000.0:
-                        self._rr_buffer.append(rr_ms)
+                        # Causal NN correction (Malik et al. 1996) — replace
+                        # outlier RRs with local median before HRV computation.
+                        nn_ms = self._nn_corrector.step(rr_ms)
+                        self._rr_buffer.append(nn_ms)
                         self._rr_times.append(t)
                         # Baseline capture
                         if (self._baseline_end_unix is None or t <= self._baseline_end_unix):
                             if not self._baseline_locked:
-                                hr_inst = 60_000.0 / rr_ms
+                                hr_inst = 60_000.0 / nn_ms
                                 self._baseline_hrs.append(hr_inst)
                 self._last_peak_t = t
 
@@ -266,6 +325,7 @@ class StreamingECGExtractor:
         self._bp.reset()
         self._notch.reset()
         self._r_detector.reset()
+        self._nn_corrector.reset()
         self._rr_buffer.clear()
         self._rr_times.clear()
         self._last_peak_t = None

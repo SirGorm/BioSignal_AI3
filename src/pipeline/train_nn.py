@@ -46,6 +46,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from src.data.datasets import WindowFeatureDataset, LabelEncoder
+from src.data.phase_whitelist import load_phase_whitelist
 from src.models.cnn1d import CNN1DMultiTask
 from src.models.lstm import LSTMMultiTask
 from src.models.cnn_lstm import CNNLSTMMultiTask
@@ -876,7 +877,7 @@ def per_subject_metrics(
 # Main orchestration
 # =============================================================================
 
-def main(run_dir: Path):
+def main(run_dir: Path, phase_whitelist_path: Optional[Path] = None):
     device = torch.device('cpu')
     print(f"\nGPU: not available (PyTorch CPU-only build)")
     print(f"CPU-adapted strategy: subsample to {CPU_SUBSAMPLE_PER_FOLD} "
@@ -886,9 +887,14 @@ def main(run_dir: Path):
 
     # ---- Load dataset --------------------------------------------------------
     print("Loading window features...")
+    phase_whitelist = load_phase_whitelist(phase_whitelist_path)
+    if phase_whitelist is not None:
+        print(f"Phase whitelist: {phase_whitelist_path} "
+              f"({len(phase_whitelist)} (recording, set) pairs)")
     base_ds = WindowFeatureDataset(
         [WINDOW_FEATURES_PATH],
-        active_only=True,
+        active_only=False,
+        phase_whitelist=phase_whitelist,
         verbose=True,
     )
     dataset = FilteredWindowDataset(base_ds)
@@ -1243,10 +1249,17 @@ def build_comparison(phase2_results: Dict, lgbm_metrics: Dict,
 
 
 if __name__ == '__main__':
-    RUN_DIR = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(
-        'runs/20260426_160754_nn_comparison'
-    )
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('run_dir', nargs='?',
+                        default='runs/20260426_160754_nn_comparison')
+    parser.add_argument('--phase-whitelist', type=Path, default=None,
+                        help='CSV of (recording_id, set_number) pairs whose '
+                             'phase_label is clean enough to train on. See '
+                             'configs/phase_quality_sets.csv.')
+    args = parser.parse_args()
+    RUN_DIR = Path(args.run_dir)
     RUN_DIR = ROOT / RUN_DIR if not RUN_DIR.is_absolute() else RUN_DIR
     RUN_DIR.mkdir(parents=True, exist_ok=True)
-    results = main(RUN_DIR)
+    results = main(RUN_DIR, phase_whitelist_path=args.phase_whitelist)
     print("\n\nAll done. Run directory:", RUN_DIR)

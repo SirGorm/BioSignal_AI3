@@ -4,16 +4,12 @@ Treats per-window engineered features as a sequence of length n_features
 (each "timestep" is one feature value, single channel). The LSTM learns
 sequential dependencies in feature ordering.
 
-This is a more aggressive interpretation than the 1D-CNN — LSTMs assume real
-temporal structure that doesn't exist between, say, "EMG MNF" and "ECG HR".
-Bidirectional helps because feature ordering is arbitrary; it lets the model
-see context in both directions.
-
-For Phase 2 with raw signals, this same architecture will see real time series.
+Unidirectional only — required for real-time deployment (the streaming pipeline
+must produce predictions causally as new data arrives). See CLAUDE.md
+"Kritiske regler".
 
 References:
 - Hochreiter & Schmidhuber 1997 — LSTM
-- Schuster & Paliwal 1997 — bidirectional RNN
 - Caruana 1997 — multitask hard parameter sharing
 """
 
@@ -26,14 +22,14 @@ from src.models.heads import MultiTaskHeads
 
 
 class LSTMMultiTask(nn.Module):
-    """Multi-task BiLSTM over feature sequences.
+    """Multi-task unidirectional LSTM over feature sequences.
 
     Architecture:
-      Input:        (B, n_features) -> reshape to (B, n_features, 1)
-      BiLSTM:       hidden=64, num_layers=2, bidirectional
-      Mean-pool:    over the feature dimension
-      Linear:       128 -> repr_dim
-      Heads:        4 task-specific linear projections
+      Input:    (B, n_features) -> reshape to (B, n_features, 1)
+      LSTM:     hidden=64, num_layers=2, unidirectional (causal)
+      Mean-pool: over the feature dimension
+      Linear:   hidden -> repr_dim
+      Heads:    4 task-specific linear projections
     """
 
     def __init__(
@@ -53,11 +49,11 @@ class LSTMMultiTask(nn.Module):
             hidden_size=hidden,
             num_layers=n_layers,
             batch_first=True,
-            bidirectional=True,
+            bidirectional=False,
             dropout=dropout if n_layers > 1 else 0.0,
         )
         self.proj = nn.Sequential(
-            nn.Linear(hidden * 2, repr_dim),
+            nn.Linear(hidden, repr_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
         )

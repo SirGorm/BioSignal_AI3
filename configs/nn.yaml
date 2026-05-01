@@ -3,11 +3,13 @@
 
 dataset:
   window_s: 2.0              # window length for primary tasks
-  hop_s: 0.1                 # 100 ms hop
+  hop_s: 1.0                 # 1 s hop = 50% overlap
   fusion: hybrid             # early | late | hybrid (start with hybrid)
+  # ECG and EDA dropped from model inputs — see
+  # src/data/raw_window_dataset.py:RAW_CHANNELS for rationale.
   fast_group:    [emg]
-  medium_group:  [ecg, acc_mag, ppg_green]
-  slow_group:    [eda, temp]
+  medium_group:  [acc_mag, ppg_green]
+  slow_group:    [temp]
   fast_fs: 1000
   medium_fs: 100
   slow_fs: 32
@@ -59,6 +61,21 @@ multitask_loss_weights:
   phase: 1.0
   fatigue: 1.0
   reps: 0.5                  # often dominates if not down-weighted
+
+# Target representation per task. Defaults preserve the legacy hard-label
+# pipeline so existing baseline runs reproduce bit-exact.
+#   reps:  hard         -> cumulative integer count at end-of-window
+#          soft_window  -> mean(rep_density_hz over window) * window_s
+#                          (fractional reps in the window; integer count
+#                          recovered at eval via src/eval/rep_aggregation.py)
+#   phase: hard         -> long index from phase_label at end-of-window
+#          soft         -> probability vector = fraction of window samples
+#                          per phase class (KL-div loss)
+target_modes:
+  exercise: hard             # set boundaries are well separated -> no gain
+  fatigue:  hard             # one RPE per set, already continuous
+  reps:     hard
+  phase:    hard
 
 cv:
   reuse_baseline_splits: true   # MUST reuse configs/splits.csv from /train

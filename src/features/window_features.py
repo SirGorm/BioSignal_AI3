@@ -49,14 +49,19 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# Feature extractor modules
-from src.features.ecg_features import (
-    extract_ecg_features, FS_ECG,
-)
+# Feature extractor modules.
+# ECG dropped from model inputs: signal quality insufficient on this dataset
+#   (verified via scripts/compare_ecg_filtering.py — QRS morphology unstable
+#   across raw vs NeuroKit2-cleaned waveforms). The streaming/offline ECG
+#   extractor remains in the codebase for diagnostic use, but its features
+#   no longer enter the model.
+# EDA dropped: all 9 recordings in dataset_aligned/ fail the dynamic-range
+#   threshold (std < 1e-7 S, range < 5e-8 S — sensor floor; Greco et al. 2016).
+#   The labeling pipeline NaN-fills the eda column, so any feature would
+#   carry no information.
 from src.features.emg_features import (
     extract_emg_features, EmgBaselineNormalizer, within_set_slope, FS_EMG,
 )
-from src.features.eda_features import extract_eda_features, FS_EDA
 from src.features.temp_features import extract_temp_features, FS_TEMP
 from src.features.acc_features import extract_acc_features, FS_ACC
 from src.features.ppg_features import extract_ppg_features, FS_PPG_DEFAULT
@@ -76,8 +81,15 @@ LABEL_COLS = [
     "exercise",
     "phase_label",
     "rep_count_in_set",
+    "rep_density_hz",          # per-sample, written by labeling/align.py
     "rpe_for_this_set",
 ]
+
+# Soft-target aggregation window: backward-looking 2 s match the NN dataset
+# window. Keeps per-row precomputation independent of dataset construction.
+SOFT_WIN_SAMPLES = 200
+SOFT_WIN_S = 2.0
+SOFT_PHASE_CLASSES = ("rest", "concentric", "eccentric", "isometric", "unknown")
 
 
 # ---------------------------------------------------------------------------
@@ -170,21 +182,7 @@ def process_recording(
 
     baseline_end_unix = _get_baseline_end_unix(labeled, baseline_s=60.0)
 
-    # --- 1. ECG features (native 500 Hz) ---
-    ecg_df_raw = _load_native_csv(rec_dir, "ecg", "ecg")
-    ecg_feats = extract_ecg_features(
-        ecg_df_raw["ecg"].values,
-        ecg_df_raw["timestamp"].values,
-        fs=FS_ECG,
-        window_s=30.0,
-        hop_s=0.1,
-    )
-
-    # Compute baseline HR for normalisation (from baseline window rows)
-    baseline_ecg_mask = ecg_feats["t_unix"] <= baseline_end_unix
-    baseline_hr = float(np.nanmedian(ecg_feats.loc[baseline_ecg_mask, "ecg_hr"].values)
-                        if baseline_ecg_mask.any() else np.nan)
-    ecg_feats["ecg_hr_rel"] = ecg_feats["ecg_hr"] / baseline_hr if not np.isnan(baseline_hr) else np.nan
+    # --- 1. ECG features: SKIPPED (signal quality insufficient on this dataset). ---
 
     # --- 2. EMG features (native 2000 Hz) ---
     emg_df_raw = _load_native_csv(rec_dir, "emg", "emg")
@@ -199,20 +197,7 @@ def process_recording(
         baseline_end_unix=baseline_end_unix,
     )
 
-    # --- 3. EDA features (native 50 Hz) ---
-    eda_df_raw = _load_native_csv(rec_dir, "eda", "eda")
-    # Baseline SCL
-    eda_baseline_mask = eda_df_raw["timestamp"] <= baseline_end_unix
-    baseline_scl = float(np.nanmedian(eda_df_raw.loc[eda_baseline_mask, "eda"].values)
-                         if eda_baseline_mask.any() else np.nan)
-    eda_feats = extract_eda_features(
-        eda_df_raw["eda"].values,
-        eda_df_raw["timestamp"].values,
-        fs=FS_EDA,
-        window_s=10.0,
-        hop_s=0.1,
-        baseline_scl=baseline_scl,
-    )
+    # --- 3. EDA features: SKIPPED (universally unusable on this dataset) ---
 
     # --- 4. Temperature features (native 1 Hz, may be all-NaN) ---
     temp_df_raw = load_temperature(rec_dir)
@@ -257,15 +242,22 @@ def process_recording(
     grid_t = labeled["t_unix"].values  # already at 100 Hz
 
     # Align all modality features to the 100 Hz grid via backward merge_asof
-    ecg_aligned = _align_features_to_grid(ecg_feats, grid_t)
     emg_aligned = _align_features_to_grid(emg_feats, grid_t)
-    eda_aligned = _align_features_to_grid(eda_feats, grid_t)
     acc_aligned = _align_features_to_grid(acc_feats, grid_t)
     ppg_aligned = _align_features_to_grid(ppg_feats, grid_t)
 
-    # Build base DataFrame with labels
-    base = labeled[LABEL_COLS].copy()
-    base = base.rename(columns={"t_unix": "t_unix"})
+    # Build base DataFrame with labels. If a label column is missing from a
+    # legacy parquet (e.g. rep_density_hz before the soft-target change), fill
+    # with NaN so downstream code can detect and fall back gracefully.
+    base = pd.DataFrame()
+    for col in LABEL_COLS:
+        if col in labeled.columns:
+            base[col] = labeled[col].values
+        else:
+            base[col] = np.nan
+            print(f"    WARN {rec_id}: label column {col!r} missing — "
+                  "filled with NaN. Re-run /label to enable soft targets.",
+                  file=sys.stderr)
 
     # Drop non-feature t_unix from aligned dfs and join
     def _drop_t(df: pd.DataFrame) -> pd.DataFrame:
@@ -275,9 +267,7 @@ def process_recording(
     window_df = pd.concat(
         [
             window_df.reset_index(drop=True),
-            _drop_t(ecg_aligned).reset_index(drop=True),
             _drop_t(emg_aligned).reset_index(drop=True),
-            _drop_t(eda_aligned).reset_index(drop=True),
             _drop_t(acc_aligned).reset_index(drop=True),
             _drop_t(ppg_aligned).reset_index(drop=True),
         ],
@@ -296,11 +286,56 @@ def process_recording(
     # Add window center
     window_df["t_window_center_s"] = labeled["t_session_s"].values
 
+    # --- 7b. Soft-target precomputations (backward 2 s rolling aggregates) ---
+    # These columns let WindowFeatureDataset emit soft targets without
+    # touching per-sample arrays at training time.
+    _add_soft_target_columns(window_df)
+
     # --- 8. Build set_features (per-set aggregation) ---
     set_df = _build_set_features(window_df, emg_normalizer)
 
     print(f"    {rec_id}: {len(window_df)} windows, {len(set_df)} sets")
     return window_df, set_df
+
+
+def _add_soft_target_columns(window_df: pd.DataFrame) -> None:
+    """Append soft-target columns to ``window_df`` in-place.
+
+    Each row of ``window_df`` corresponds to one feature-extraction window
+    ending at ``t_unix``. Soft targets aggregate the per-sample 100 Hz labels
+    over the same backward 2 s window:
+
+      reps_in_window_2s  = mean(rep_density_hz over 200 samples) * 2 s
+                         = fractional reps captured in the window
+      phase_frac_<class> = fraction of the window's samples labelled <class>
+                         = soft probability target for the phase head
+
+    Sums across phase classes equal 1 (or 0 for all-NaN windows). The
+    raw_window_dataset path computes these on the fly from per-sample data;
+    this precomputed version is only consumed by the feature pipeline.
+    """
+    n = len(window_df)
+    if n == 0:
+        return
+
+    # --- soft reps -------------------------------------------------------
+    if "rep_density_hz" in window_df.columns:
+        density = pd.to_numeric(window_df["rep_density_hz"], errors="coerce").fillna(0.0)
+        reps_soft = density.rolling(SOFT_WIN_SAMPLES, min_periods=1).mean() * SOFT_WIN_S
+        window_df["reps_in_window_2s"] = reps_soft.astype("float32").values
+    else:
+        window_df["reps_in_window_2s"] = np.full(n, np.nan, dtype="float32")
+
+    # --- soft phase ------------------------------------------------------
+    if "phase_label" in window_df.columns:
+        phase_str = window_df["phase_label"].astype(object)
+        for cls in SOFT_PHASE_CLASSES:
+            is_cls = (phase_str == cls).astype("float32")
+            frac = is_cls.rolling(SOFT_WIN_SAMPLES, min_periods=1).mean()
+            window_df[f"phase_frac_{cls}"] = frac.astype("float32").values
+    else:
+        for cls in SOFT_PHASE_CLASSES:
+            window_df[f"phase_frac_{cls}"] = np.full(n, np.nan, dtype="float32")
 
 
 def _build_set_features(window_df: pd.DataFrame, normalizer: EmgBaselineNormalizer) -> pd.DataFrame:
@@ -330,11 +365,7 @@ def _build_set_features(window_df: pd.DataFrame, normalizer: EmgBaselineNormaliz
 
         t = grp["t_session_s"].values
 
-        # ECG HRV aggregates (Task Force 1996)
-        for col in ["ecg_hr", "ecg_rmssd", "ecg_sdnn", "ecg_hr_rel"]:
-            if col in grp:
-                row[f"{col}_mean"] = float(np.nanmean(grp[col]))
-                row[f"{col}_std"] = float(np.nanstd(grp[col]))
+        # ECG HRV aggregates: SKIPPED (signal quality insufficient on this dataset).
 
         # EMG per-set slopes — fatigue indicators (Dimitrov et al. 2006, Cifrek et al. 2009)
         for feat in ["emg_mnf", "emg_mdf", "emg_dimitrov", "emg_rms"]:
@@ -351,10 +382,7 @@ def _build_set_features(window_df: pd.DataFrame, normalizer: EmgBaselineNormaliz
                 row[f"{feat}_rel_mean"] = float(np.nanmean(grp[f"{feat}_rel"]))
                 row[f"{feat}_endset_rel"] = float(np.nanmean(grp[f"{feat}_rel"].values[-max(1, int(0.1 * len(grp))):]))
 
-        # EDA (Boucsein 2012, Greco et al. 2016)
-        for col in ["eda_scl", "eda_scr_amp", "eda_scr_count", "eda_phasic_mean", "eda_scl_rel"]:
-            if col in grp:
-                row[f"{col}_mean"] = float(np.nanmean(grp[col]))
+        # EDA: dropped (sensor floor on all 9 recordings; Greco et al. 2016).
 
         # Accelerometer (Mannini & Sabatini 2010)
         for col in ["acc_rms", "acc_jerk_rms", "acc_dom_freq", "acc_rep_band_ratio"]:

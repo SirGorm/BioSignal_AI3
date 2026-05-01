@@ -2,10 +2,11 @@
 
 References:
 - Kendall et al. 2018 — uncertainty-weighted multi-task loss (optional)
+- Hinton et al. 2015 — soft targets / KL distillation (phase soft labels)
 """
 
 from __future__ import annotations
-from typing import Dict
+from typing import Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -17,6 +18,15 @@ class MultiTaskLoss(nn.Module):
 
     By default uses a fixed weighted sum. Set use_uncertainty_weighting=True
     to learn task weights per Kendall et al. 2018.
+
+    target_modes selects per-task target representation:
+      reps:  'hard'        -> smooth_l1 on cumulative integer count
+             'soft_window' -> smooth_l1 on fractional in-window count (same loss
+                              kernel; only the dataset target differs)
+      phase: 'hard'        -> cross_entropy on long index target
+             'soft'        -> KL divergence on (B, K) probability target;
+                              degenerates to cross_entropy when target is
+                              one-hot, so this mode is a strict generalization.
     """
 
     def __init__(
@@ -26,6 +36,7 @@ class MultiTaskLoss(nn.Module):
         w_fatigue: float = 1.0,
         w_reps: float = 0.5,
         use_uncertainty_weighting: bool = False,
+        target_modes: Optional[Dict[str, str]] = None,
     ):
         super().__init__()
         self.weights = {
@@ -36,6 +47,10 @@ class MultiTaskLoss(nn.Module):
         if use_uncertainty_weighting:
             # Learnable log-variance per task
             self.log_var = nn.Parameter(torch.zeros(4))
+        modes = {'reps': 'hard', 'phase': 'hard'}
+        if target_modes:
+            modes.update(target_modes)
+        self.target_modes = modes
 
     def forward(
         self,
@@ -47,13 +62,28 @@ class MultiTaskLoss(nn.Module):
         zero = torch.tensor(0.0, device=device, requires_grad=False)
         losses: Dict[str, torch.Tensor] = {}
 
-        # Classification (cross-entropy)
-        for k in ('exercise', 'phase'):
-            m = masks[k]
-            if m.any():
-                losses[k] = F.cross_entropy(preds[k][m], targets[k][m])
+        # exercise: hard cross-entropy
+        m = masks['exercise']
+        if m.any():
+            losses['exercise'] = F.cross_entropy(preds['exercise'][m],
+                                                   targets['exercise'][m])
+        else:
+            losses['exercise'] = zero.clone()
+
+        # phase: hard CE or soft KL-div
+        m = masks['phase']
+        if m.any():
+            if self.target_modes['phase'] == 'soft':
+                # targets['phase'] is (B, K) probability vector
+                log_p = F.log_softmax(preds['phase'][m], dim=-1)
+                losses['phase'] = F.kl_div(log_p,
+                                            targets['phase'][m].float(),
+                                            reduction='batchmean')
             else:
-                losses[k] = zero.clone()
+                losses['phase'] = F.cross_entropy(preds['phase'][m],
+                                                    targets['phase'][m])
+        else:
+            losses['phase'] = zero.clone()
 
         # Regression (L1 / smooth L1)
         m = masks['fatigue']

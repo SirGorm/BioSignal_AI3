@@ -71,7 +71,7 @@ from src.streaming.acc_streaming import StreamingAccExtractor
 # -----------------------------------------------------------------------
 # Fixture paths
 # -----------------------------------------------------------------------
-REC_DIR = ROOT / "dataset" / "recording_012"
+REC_DIR = ROOT / "dataset_aligned" / "recording_012"
 LABELED_PARQUET = ROOT / "data" / "labeled" / "recording_012" / "aligned_features.parquet"
 WARMUP_S = 30.0  # seconds to skip (filter state convergence)
 RTOL = 0.05  # 5% relative tolerance for causal vs zero-phase after warmup

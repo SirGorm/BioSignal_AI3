@@ -32,7 +32,9 @@ windows:
 
 baseline:
   use_first_rest_s: 60     # first 60 s of session for per-subject baseline
-  features: [emg_mnf, emg_mdf, emg_rms, ecg_hr, eda_scl, temp_mean]
+  # ECG and EDA dropped from model inputs — see src/data/datasets.py
+  # EXCLUDED_FEATURE_PREFIXES for rationale.
+  features: [emg_mnf, emg_mdf, emg_rms, temp_mean]
 
 session_segmentation:
   threshold_g: 0.3

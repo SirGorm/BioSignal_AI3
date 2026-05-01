@@ -130,8 +130,17 @@ with open(out_dir / 'stats.json', 'w') as f:
 
 ### 5. Plot full-session overview
 
+All plots in this project use the seaborn `white` theme + `sns.despine` to
+strip top/right spines. Use the project helper `src/eval/plot_style.py` so
+every figure is consistent — call `apply_style()` once at module import,
+and `despine(fig=fig)` (or no args for the current figure) right before
+each `savefig`.
+
 ```python
 import matplotlib.pyplot as plt
+from src.eval.plot_style import apply_style, despine
+
+apply_style()
 
 channels = [c for c in bio_df.columns if c != ts_col]
 fig, axes = plt.subplots(len(channels), 1, figsize=(14, 2 * len(channels)),
@@ -147,6 +156,7 @@ for ax, c in zip(axes, channels):
 axes[-1].set_xlabel('Session time [minutes]')
 plt.suptitle(f'{subject_id} / {session_id} — full session overview')
 plt.tight_layout()
+despine(fig=fig)
 plt.savefig(out_dir / 'signal_overview.png', dpi=110)
 plt.close()
 ```
@@ -401,6 +411,7 @@ The ml-expert reads stats.json to flag any subject whose data deviates significa
 - **Always inspect before labeling a new dataset.** Never trust default sample rates.
 - **Always verify Unix timestamps** with `>1e9` check. Session-relative timestamps require manual offset estimation; Unix doesn't.
 - **Always save plots**, even if they look fine. They're the audit trail.
+- **All plots use seaborn + despine** via `src/eval/plot_style.py` (`apply_style()` once, `despine(fig=fig)` before every `savefig`). No bare-matplotlib figures.
 - **Write findings.md in human-readable form** so the user can read it and update CLAUDE.md accordingly.
 
 ## References

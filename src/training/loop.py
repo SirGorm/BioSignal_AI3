@@ -9,7 +9,7 @@ import json
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 
 from src.training.losses import MultiTaskLoss
 from src.eval.metrics import compute_all_metrics
@@ -28,6 +28,11 @@ class TrainConfig:
     use_uncertainty_weighting: bool = False
     loss_weights: Dict[str, float] = field(default_factory=lambda: {
         'exercise': 1.0, 'phase': 1.0, 'fatigue': 1.0, 'reps': 0.5
+    })
+    # Per-task target representation; defaults preserve hard-label baseline.
+    # See configs/nn.yaml `target_modes` and src/training/losses.py.
+    target_modes: Dict[str, str] = field(default_factory=lambda: {
+        'reps': 'hard', 'phase': 'hard',
     })
 
 
@@ -61,7 +66,7 @@ def _train_one_epoch(model, loader, loss_fn, opt, scaler, device, cfg):
                  for k, v in batch['masks'].items()}
 
         opt.zero_grad(set_to_none=True)
-        with autocast(enabled=cfg.mixed_precision):
+        with autocast("cuda",   enabled=cfg.mixed_precision):
             preds = model(x)
             total, parts = loss_fn(preds, targets, masks)
 
@@ -92,7 +97,7 @@ def _evaluate(model, loader, loss_fn, device, cfg, n_exercise, n_phase):
         x = _move_x_to_device(batch['x'], device)
         targets = {k: v.to(device) for k, v in batch['targets'].items()}
         masks = {k: v.to(device) for k, v in batch['masks'].items()}
-        with autocast(enabled=cfg.mixed_precision):
+        with autocast("cuda",   enabled=cfg.mixed_precision):
             preds = model(x)
             total, parts = loss_fn(preds, targets, masks)
 
@@ -147,8 +152,9 @@ def train_one_fold(
                               weight_decay=cfg.weight_decay)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.epochs)
     loss_fn = MultiTaskLoss(
-        **cfg.loss_weights,
+        **{f'w_{k}': v for k, v in cfg.loss_weights.items()},
         use_uncertainty_weighting=cfg.use_uncertainty_weighting,
+        target_modes=cfg.target_modes,
     ).to(device)
     scaler = GradScaler(enabled=cfg.mixed_precision)
 

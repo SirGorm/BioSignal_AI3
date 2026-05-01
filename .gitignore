@@ -1,11 +1,14 @@
 # Raw recordings (too large for GitHub - keep in external storage)
 dataset/
+dataset_aligned/
+dataset_clean/
 
 # Generated artifacts (regenerable from /label and /train)
-data/labeled/
-runs/*/features/
-runs/*/models/
-runs/*/plots/
+data/
+runs/
+inspections/
+logs/
+diagrams/
 
 # Python
 __pycache__/

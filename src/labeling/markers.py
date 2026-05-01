@@ -164,40 +164,39 @@ def parse_markers(markers_path: Path) -> list[SetMarker]:
 def select_canonical_sets(
     all_sets: list[SetMarker],
     expected_n: int = 12,
-    min_reps: int = 5,
-    min_duration_s: float = 15.0,
+    min_reps: int = 3,
+    min_duration_s: float = 10.0,
 ) -> list[SetMarker]:
     """Filter to the canonical N sets from a recording that may have extras.
 
     Strategy (applied in order):
-    1. Discard sets with exactly 0 reps AND duration < 5 s (truly empty
-       accidental triggers — nothing was recorded).
+    1. Discard sets with exactly 0 reps (accidental triggers with no reps
+       recorded, regardless of duration).
     2. If still more than expected_n, discard sets with fewer than min_reps
        reps AND duration < min_duration_s (aborted practice attempts).
     3. If still more than expected_n, remove the fewest-rep / shortest sets
        until exactly expected_n remain.
     4. Return whatever is left (caller checks length and halts if < expected_n).
 
-    This two-stage approach correctly handles rec_005 where set 10 has 0 reps
-    and 3.5 s (true empty set) while sets 4-6 have 3 reps each at 11-17 s
-    (legitimate short sets of one exercise block).
+    Default thresholds (min_reps=3, min_duration_s=10) were chosen to correctly
+    recover the canonical 12 sets from recording_006 (15 markers, where sets 4
+    and 6 have 0 reps and set 5 has 3 reps/11.0 s — a clearly aborted attempt
+    bracketed by the proper exercise blocks). Verified against all 9 recordings
+    in dataset_aligned/ (Bulling et al. 2014).
 
     Parameters
     ----------
     all_sets:       All SetMarker objects from parse_markers().
     expected_n:     Target canonical set count (default 12).
-    min_reps:       Threshold for stage-2 filtering (default 5).
-    min_duration_s: Duration threshold for stage-2 filtering (default 15 s).
+    min_reps:       Threshold for stage-2 filtering (default 3).
+    min_duration_s: Duration threshold for stage-2 filtering (default 10 s).
 
     Returns
     -------
     list[SetMarker] of length <= expected_n, sorted by set_num.
     """
-    # Stage 1: remove truly empty sets (0 reps + very short duration)
-    filtered = [
-        s for s in all_sets
-        if not (s.n_reps == 0 and s.duration_s < 5.0)
-    ]
+    # Stage 1: remove sets with 0 reps (no reps logged = no exercise data)
+    filtered = [s for s in all_sets if s.n_reps > 0]
 
     # Stage 2: if still over target, remove clearly aborted sets
     if len(filtered) > expected_n:

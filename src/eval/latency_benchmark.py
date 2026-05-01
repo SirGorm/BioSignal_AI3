@@ -183,6 +183,9 @@ def write_artifacts(run_dir: Path, stats: dict, latencies: np.ndarray) -> None:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        from src.eval.plot_style import apply_style, despine
+
+        apply_style()
 
         fig, ax = plt.subplots(figsize=(8, 4))
         ax.hist(latencies, bins=80, color="steelblue", edgecolor="white")
@@ -195,6 +198,7 @@ def write_artifacts(run_dir: Path, stats: dict, latencies: np.ndarray) -> None:
         ax.set_title(f"Streaming pipeline latency — {stats['recording']} ({stats['minutes']:.0f} min)")
         ax.legend()
         plt.tight_layout()
+        despine(fig=fig)
         png = run_dir / "plots" / "latency_histogram.png"
         png.parent.mkdir(exist_ok=True)
         plt.savefig(png, dpi=120)

@@ -82,10 +82,10 @@ def test_loss_module():
     loss_fn = MultiTaskLoss()
 
     preds = {
-        'exercise': torch.randn(BATCH, N_EXERCISE),
-        'phase':    torch.randn(BATCH, N_PHASE),
-        'fatigue':  torch.randn(BATCH),
-        'reps':     torch.randn(BATCH),
+        'exercise': torch.randn(BATCH, N_EXERCISE, requires_grad=True),
+        'phase':    torch.randn(BATCH, N_PHASE,    requires_grad=True),
+        'fatigue':  torch.randn(BATCH,             requires_grad=True),
+        'reps':     torch.randn(BATCH,             requires_grad=True),
     }
     targets = {
         'exercise': torch.randint(0, N_EXERCISE, (BATCH,)),
