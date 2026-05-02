@@ -42,7 +42,12 @@ EXCLUDED_FEATURE_PREFIXES = ('ecg_', 'eda_')
 SOFT_REPS_COL = 'reps_in_window_2s'
 SOFT_PHASE_COL_PREFIX = 'phase_frac_'   # e.g. phase_frac_concentric
 
-VALID_REPS_MODES = ('hard', 'soft_window')
+VALID_REPS_MODES = ('hard', 'soft_window', 'soft_overlap')
+# soft_overlap: Wang et al. 2026 (J Appl Sci Eng 31:26031038, Eq. 2) —
+#   pre-computed Σ overlap_fraction(rep_k, window) per row by
+#   scripts/add_soft_overlap_reps.py.
+SOFT_OVERLAP_COL = 'soft_overlap_reps'
+HAS_REP_INTERVALS_COL = 'has_rep_intervals'
 VALID_PHASE_MODES = ('hard', 'soft')
 DEFAULT_TARGET_MODES = {'reps': 'hard', 'phase': 'hard'}
 
@@ -101,6 +106,7 @@ class WindowFeatureDataset(Dataset):
         phase_whitelist: Optional[Set[Tuple[str, int]]] = None,
         target_modes: Optional[Dict[str, str]] = None,
         verbose: bool = True,
+        stride: int = 100,
     ):
         # Resolve target modes (defaults preserve hard-label legacy pipeline).
         modes = dict(DEFAULT_TARGET_MODES)
@@ -114,6 +120,20 @@ class WindowFeatureDataset(Dataset):
 
         dfs = [pd.read_parquet(p) for p in window_parquets]
         df = pd.concat(dfs, ignore_index=True)
+
+        # Decimate to a fixed stride on the 100 Hz feature grid so that the
+        # feature NN trains on the same window-center cadence as the raw NN
+        # (which uses HOP_SIZE=100 = 1 s in raw_window_dataset). Default 100
+        # = 1 s hop → matches 2 s window with 50 % overlap. Per recording so
+        # we keep contiguous coverage rather than dropping whole recordings.
+        if stride is not None and stride > 1:
+            n_before = len(df)
+            df = df.groupby('recording_id', sort=False, group_keys=False)\
+                   .apply(lambda g: g.iloc[::stride])\
+                   .reset_index(drop=True)
+            if verbose:
+                print(f"[dataset] stride={stride} (per recording): "
+                      f"{n_before} -> {len(df)}")
 
         if active_only and 'in_active_set' in df.columns:
             n_before = len(df)
@@ -131,7 +151,9 @@ class WindowFeatureDataset(Dataset):
                     f"{col}. Columns present: {sorted(df.columns)}"
                 )
 
-        excluded = METADATA_COLS | LABEL_COLS | {SOFT_REPS_COL}
+        excluded = METADATA_COLS | LABEL_COLS | {SOFT_REPS_COL,
+                                                    SOFT_OVERLAP_COL,
+                                                    HAS_REP_INTERVALS_COL}
         # phase_frac_* columns are soft-target supervision, never features
         soft_phase_cols = [c for c in df.columns
                            if c.startswith(SOFT_PHASE_COL_PREFIX)]
@@ -227,8 +249,23 @@ class WindowFeatureDataset(Dataset):
                       f"phase-labelled windows "
                       f"({len(phase_whitelist)} (recording, set) pairs)")
 
-        # ---- reps target (hard or soft_window) -----------------------------
-        if self.target_modes['reps'] == 'soft_window':
+        # ---- reps target: hard | soft_window | soft_overlap -----------------
+        if self.target_modes['reps'] == 'soft_overlap':
+            if SOFT_OVERLAP_COL not in df.columns:
+                raise KeyError(
+                    f"target_modes['reps']='soft_overlap' requires column "
+                    f"{SOFT_OVERLAP_COL!r} in window_features.parquet. "
+                    "Run scripts/add_soft_overlap_reps.py first."
+                )
+            reps = df[SOFT_OVERLAP_COL].to_numpy(dtype=np.float32)
+            in_act = (df['in_active_set'].astype(bool).to_numpy()
+                      if 'in_active_set' in df.columns
+                      else ~np.isnan(reps))
+            has_iv = (df[HAS_REP_INTERVALS_COL].astype(bool).to_numpy()
+                      if HAS_REP_INTERVALS_COL in df.columns
+                      else np.ones(len(df), dtype=bool))
+            self.m_reps = torch.from_numpy(in_act & has_iv & ~np.isnan(reps))
+        elif self.target_modes['reps'] == 'soft_window':
             if SOFT_REPS_COL not in df.columns:
                 raise KeyError(
                     f"target_modes['reps']='soft_window' requires column "
@@ -249,6 +286,35 @@ class WindowFeatureDataset(Dataset):
         self.t_fatigue = torch.from_numpy(np.nan_to_num(rpe, nan=0.0))
 
         self.subject_ids: List[str] = df['subject_id'].astype(str).tolist()
+        # Filled in by materialize_to_device(); flag enables GPU fast path in
+        # src/training/loop.py:_make_loader.
+        self.gpu_resident: bool = False
+
+    def materialize_to_device(self, device) -> None:
+        """Move all tensors to `device` and expose them under _gpu_* names so
+        the training loop can index directly without DataLoader overhead.
+
+        Idempotent: re-calling on an already-resident dataset is a no-op."""
+        if self.gpu_resident:
+            return
+        device = torch.device(device)
+        if device.type != 'cuda':
+            # CPU fast path is also fine: DataLoader bypass still helps.
+            pass
+        self._gpu_x = self.X.to(device, non_blocking=True)
+        self._gpu_targets = {
+            'exercise': self.t_exercise.to(device, non_blocking=True),
+            'phase':    self.t_phase.to(device, non_blocking=True),
+            'fatigue':  self.t_fatigue.to(device, non_blocking=True),
+            'reps':     self.t_reps.to(device, non_blocking=True),
+        }
+        self._gpu_masks = {
+            'exercise': self.m_exercise.to(device, non_blocking=True),
+            'phase':    self.m_phase.to(device, non_blocking=True),
+            'fatigue':  self.m_fatigue.to(device, non_blocking=True),
+            'reps':     self.m_reps.to(device, non_blocking=True),
+        }
+        self.gpu_resident = True
 
     def __len__(self):
         return self.X.shape[0]

@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 import optuna
+import torch
 
 from src.data.datasets import WindowFeatureDataset
 from src.data.phase_whitelist import load_phase_whitelist
@@ -110,8 +111,13 @@ def build_factory(cls, variant: str, ds, hps: Dict):
     return factory
 
 
-def score_summary(summary: Dict) -> float:
-    """Lower is better. Combines 4 tasks via z-rank-style aggregation."""
+def score_summary(summary: Dict, enabled_tasks: list = None) -> float:
+    """Lower is better. Combines tasks via z-rank-style aggregation.
+
+    When enabled_tasks is given, only those tasks contribute to the score —
+    important for single-task training where Optuna must optimize the right
+    objective.
+    """
     parts = []
     for task, metric, sign in [
         ('exercise', 'f1_macro', -1),  # higher F1 = lower score
@@ -119,6 +125,8 @@ def score_summary(summary: Dict) -> float:
         ('fatigue',  'mae',      +1),
         ('reps',     'mae',      +1),
     ]:
+        if enabled_tasks is not None and task not in enabled_tasks:
+            continue
         v = summary.get(task, {}).get(metric, {}).get('mean')
         if v is not None and not np.isnan(v):
             parts.append(sign * float(v))
@@ -127,17 +135,25 @@ def score_summary(summary: Dict) -> float:
 
 def run_one_cv(arch: str, variant: str, dataset, folds, seeds, hps,
                 epochs, num_workers, out_dir: Path,
-                use_uncertainty: bool):
+                use_uncertainty: bool,
+                enabled_tasks: list = None,
+                target_modes: dict = None):
     """One pass of run_cv with given HPs."""
     cls = (RAW_REGISTRY if variant == 'raw' else FEAT_REGISTRY)[arch]
     factory = build_factory(cls, variant, dataset, hps)
 
-    cfg = TrainConfig(
+    cfg_kwargs = dict(
         epochs=epochs, batch_size=hps['batch_size'], lr=hps['lr'],
-        weight_decay=hps['weight_decay'], grad_clip=1.0, patience=5,
+        weight_decay=hps['weight_decay'], grad_clip=1.0,
+        patience=hps.get('_patience', 5),
         mixed_precision=True, num_workers=num_workers,
         use_uncertainty_weighting=use_uncertainty,
     )
+    if enabled_tasks is not None:
+        cfg_kwargs['enabled_tasks'] = list(enabled_tasks)
+    if target_modes is not None:
+        cfg_kwargs['target_modes'] = dict(target_modes)
+    cfg = TrainConfig(**cfg_kwargs)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / 'train_config.json').write_text(json.dumps(cfg.__dict__, indent=2))
     (out_dir / 'hps.json').write_text(json.dumps(hps, indent=2))
@@ -157,6 +173,26 @@ def main():
     p.add_argument('--phase1-epochs', type=int, default=30)
     p.add_argument('--phase2-epochs', type=int, default=50)
     p.add_argument('--phase2-seeds', type=int, nargs='+', default=[42, 1337, 7])
+    p.add_argument('--patience', type=int, default=5,
+                   help='Early-stopping patience (epochs without val improvement). '
+                        'Phase 1 uses this; Phase 2 inherits it from the same flag.')
+    p.add_argument('--tasks', nargs='+',
+                   choices=['exercise', 'phase', 'fatigue', 'reps'],
+                   default=['exercise', 'phase', 'fatigue', 'reps'],
+                   help='Tasks contributing to the loss. Default: all 4 (multi-task). '
+                        'Use --tasks fatigue for a fatigue-only model. Other heads '
+                        'are still computed for evaluation but do not influence '
+                        'gradients.')
+    p.add_argument('--reps-mode',
+                   choices=['hard', 'soft_window', 'soft_overlap'],
+                   default='hard',
+                   help='Rep-counting target representation. soft_overlap = '
+                        'Wang et al. 2026 overlap-fraction labels (requires '
+                        'scripts/add_soft_overlap_reps.py to have been run).')
+    p.add_argument('--phase-mode',
+                   choices=['hard', 'soft'],
+                   default='hard',
+                   help='Phase classification target representation.')
     p.add_argument('--num-workers', type=int, default=None,
                    help='Default: 2 (features) or 8 (raw)')
     p.add_argument('--exclude-recordings', nargs='*', default=[],
@@ -197,6 +233,7 @@ def main():
     if phase_wl is not None:
         print(f"[optuna] Phase whitelist: {args.phase_whitelist} "
               f"({len(phase_wl)} (recording, set) pairs)")
+    target_modes = {'reps': args.reps_mode, 'phase': args.phase_mode}
     if args.variant == 'features':
         feat_cols = None
         if args.feature_prefixes:
@@ -208,11 +245,24 @@ def main():
                   f"{len(feat_cols)} cols")
         dataset = WindowFeatureDataset(window_parquets=files, active_only=True,
                                          phase_whitelist=phase_wl,
-                                         feature_cols=feat_cols)
+                                         feature_cols=feat_cols,
+                                         target_modes=target_modes)
     else:
         dataset = RawMultimodalWindowDataset(parquet_paths=files, active_only=True,
-                                               phase_whitelist=phase_wl)
+                                               phase_whitelist=phase_wl,
+                                               target_modes=target_modes)
+    print(f"[optuna] target_modes={target_modes}  enabled_tasks={args.tasks}")
     print(f"[optuna] {args.variant} dataset: {len(dataset)} windows")
+
+    # Move dataset to GPU once and bypass DataLoader for the rest of the run.
+    # Eliminates Windows worker-spawn overhead and per-batch CPU↔GPU transfer
+    # — empirically 5-10× faster on this dataset's small size (~50 MB).
+    if torch.cuda.is_available():
+        import time as _time
+        _t0 = _time.time()
+        dataset.materialize_to_device("cuda")
+        print(f"[optuna] dataset materialized to cuda in {_time.time()-_t0:.1f}s "
+              f"(gpu_resident={dataset.gpu_resident})")
 
     subject_ids = np.array(dataset.subject_ids)
     folds = load_or_generate_splits(subject_ids, splits_path=args.splits)
@@ -265,13 +315,14 @@ def main():
 
     def objective(trial: optuna.Trial) -> float:
         hps = suggest_hps(trial, args.arch)
+        hps['_patience'] = args.patience
         trial_dir = run_dir / 'phase1' / f"trial_{trial.number:03d}"
         # Per-trial cache: if cv_summary already exists, reuse the score.
         cached = next(iter(trial_dir.rglob('cv_summary.json')), None)
         if cached is not None:
             try:
                 cached_summary = json.loads(cached.read_text()).get('summary', {})
-                score = score_summary(cached_summary)
+                score = score_summary(cached_summary, enabled_tasks=args.tasks)
                 print(f"[optuna] trial {trial.number} CACHED: score={score:.4f}")
                 return score
             except Exception:
@@ -283,8 +334,9 @@ def main():
                 hps=hps, epochs=args.phase1_epochs,
                 num_workers=args.num_workers, out_dir=trial_dir,
                 use_uncertainty=use_uncertainty,
+                enabled_tasks=args.tasks, target_modes=target_modes,
             )
-            score = score_summary(summary)
+            score = score_summary(summary, enabled_tasks=args.tasks)
             elapsed = time.time() - t0
             trial_log.append({
                 'trial': trial.number, 'hps': hps, 'score': score,
@@ -353,11 +405,13 @@ def main():
 
     print(f"\n=== PHASE 2: 3-seed refit on best HPs ===")
     t_start_p2 = time.time()
+    best_hps_full['_patience'] = args.patience
     summary, _ = run_one_cv(
         args.arch, args.variant, dataset, folds, seeds=args.phase2_seeds,
         hps=best_hps_full, epochs=args.phase2_epochs,
         num_workers=args.num_workers, out_dir=p2_dir,
         use_uncertainty=use_uncertainty,
+        enabled_tasks=args.tasks, target_modes=target_modes,
     )
     p2_elapsed = time.time() - t_start_p2
     print(f"[optuna] Phase 2 complete in {p2_elapsed/60:.1f} min")

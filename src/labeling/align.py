@@ -312,8 +312,8 @@ def _fill_rep_density_hz(
 def build_set_info_array(
     grid_t: np.ndarray,
     canonical_sets: list,          # list of SetMarker
-    exercises: list[str | None],   # length 12, indexed by set position
-    rpe_list: list[int | None],    # length 12, indexed by set position
+    exercises: list[str | None],   # canonical-aligned (one per canonical set)
+    rpe_list: list[int | None],    # canonical-aligned (one per canonical set)
     joint_angle_dfs: dict[int, pd.DataFrame | None],  # set_num -> angle df
     exercise_for_set: dict[int, str],  # set_num -> exercise name
 ) -> pd.DataFrame:
@@ -323,8 +323,10 @@ def build_set_info_array(
     ----------
     grid_t:         100 Hz timestamp array.
     canonical_sets: List of SetMarker objects (canonical 12 sets).
-    exercises:      From Participants.xlsx, exercise per set (list of 12).
-    rpe_list:       From Participants.xlsx, RPE per set (list of 12).
+    exercises:      Exercise per canonical set, already mapped from
+                    Participants.xlsx using orig marker number (sm.set_num).
+                    Same length as canonical_sets.
+    rpe_list:       RPE per canonical set, same alignment as `exercises`.
     joint_angle_dfs: Dict mapping set_num to the joint angle DataFrame
                      (or None if unavailable).
     exercise_for_set: Maps canonical set_num to exercise string.

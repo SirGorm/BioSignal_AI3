@@ -54,7 +54,7 @@ training:
   lr_schedule: cosine
   mixed_precision: true
   grad_clip: 1.0
-  uncertainty_weighting: false  # set true to use Kendall et al. 2018
+  uncertainty_weighting: true  # Kendall et al. 2018 — enabled by default in train_optuna.py (use --no-uncertainty to disable)
 
 multitask_loss_weights:
   exercise: 1.0

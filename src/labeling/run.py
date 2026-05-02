@@ -106,6 +106,30 @@ _MANUAL_MARKER_EXCLUSIONS: dict[str, set[int]] = {
     # sets (orig 1-9 only). This recording has no pullup data.
     "recording_009": {10, 11, 12, 13, 14},
 }
+
+
+def _align_to_canonical(
+    full_list: list,
+    canonical_sets,
+) -> list:
+    """Pick Participants.xlsx entries indexed by orig marker number.
+
+    Participants.xlsx slot N (1-indexed) corresponds to original marker
+    number N — not to canonical position. After manual exclusions or
+    select_canonical_sets() drops aborted attempts, those two diverge,
+    and a position-based lookup mislabels canonical sets that come from
+    later orig markers. We use sm.set_num - 1 as the slot index instead.
+    """
+    out = []
+    for sm in canonical_sets:
+        slot = sm.set_num - 1
+        if 0 <= slot < len(full_list):
+            out.append(full_list[slot])
+        else:
+            out.append(None)
+    return out
+
+
 from src.labeling.align import (
     make_100hz_grid,
     build_set_info_array,
@@ -178,9 +202,11 @@ def _write_quality_report(
     lines.append("## Set durations and rep counts")
     lines.append("| Canonical set | Markers set_num | Exercise | Duration (s) | Marker reps | Joint reps | Flag |")
     lines.append("|---|---|---|---|---|---|---|")
+    aligned_exercises = _align_to_canonical(exercises, canonical_sets)
+    aligned_rpe = _align_to_canonical(rpe_list, canonical_sets)
     for pos, sm in enumerate(canonical_sets):
-        exer = exercises[pos] if pos < len(exercises) else "?"
-        rpe = rpe_list[pos] if pos < len(rpe_list) else "?"
+        exer = aligned_exercises[pos] if aligned_exercises[pos] is not None else "?"
+        rpe = aligned_rpe[pos] if aligned_rpe[pos] is not None else "?"
         jcov = joint_coverage.get(sm.set_num, {})
         joint_reps = jcov.get("joint_reps", "N/A")
         marker_reps = sm.n_reps
@@ -491,8 +517,13 @@ def label_one_recording(
         joint_coverage: dict[int, dict] = {}
         rep_diagnostics: list[dict] = []
 
+        # Slot-based alignment: orig marker N → Participants.xlsx slot N.
+        # Differs from canonical position whenever sets are excluded.
+        aligned_exercises = _align_to_canonical(exercises, canonical_sets)
+        aligned_rpe = _align_to_canonical(rpe_list, canonical_sets)
+
         for pos_idx, sm in enumerate(canonical_sets):
-            exer = exercises[pos_idx] if pos_idx < len(exercises) else None
+            exer = aligned_exercises[pos_idx]
             if exer is None:
                 exer = "unknown"
 
@@ -724,15 +755,15 @@ def label_one_recording(
         # Step 11: set-info array on 100 Hz grid
         # ---------------------------------------------------------------
         exercise_for_set = {
-            sm.set_num: (exercises[pos_idx] or "unknown")
+            sm.set_num: (aligned_exercises[pos_idx] or "unknown")
             for pos_idx, sm in enumerate(canonical_sets)
         }
 
         set_info = build_set_info_array(
             grid_t,
             canonical_sets,
-            exercises,
-            rpe_list,
+            aligned_exercises,
+            aligned_rpe,
             joint_angle_dfs,
             exercise_for_set,
         )

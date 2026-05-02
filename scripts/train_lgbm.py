@@ -56,6 +56,10 @@ _p.add_argument("--features-dir", default=None,
                      "(defaults to <run-dir>)")
 _p.add_argument("--exclude-recordings", nargs="*", default=[])
 _p.add_argument("--splits", default=None)
+_p.add_argument("--stride", type=int, default=100,
+                help="Decimate window_features per recording to this stride. "
+                     "100 = 1 s hop on the 100 Hz feature grid (matches raw NN "
+                     "2 s window @ 50%% overlap). 1 = no decimation.")
 _args, _ = _p.parse_known_args()
 
 ROOT = Path("C:/Users/skogl/Downloads/eirikgsk/biosignal_2/BioSignal_AI3")
@@ -83,6 +87,12 @@ if _args.exclude_recordings:
     sf = sf[~sf["recording_id"].isin(_args.exclude_recordings)].reset_index(drop=True)
     print(f"  excluded {set(_args.exclude_recordings)}: "
           f"wf {n0_w} -> {len(wf)}, sf {n0_s} -> {len(sf)}")
+if _args.stride and _args.stride > 1:
+    n0 = len(wf)
+    wf = wf.groupby("recording_id", sort=False, group_keys=False)\
+           .apply(lambda g: g.iloc[::_args.stride])\
+           .reset_index(drop=True)
+    print(f"  stride={_args.stride} (per recording): wf {n0} -> {len(wf)}")
 splits = pd.read_csv(SPLITS_CSV)   # cols: fold, recording_id, subject_id, split
 print(f"  window_features: {wf.shape}  set_features: {sf.shape}")
 

@@ -37,16 +37,26 @@ class MultiTaskLoss(nn.Module):
         w_reps: float = 0.5,
         use_uncertainty_weighting: bool = False,
         target_modes: Optional[Dict[str, str]] = None,
+        enabled_tasks: Optional[list[str]] = None,
     ):
         super().__init__()
         self.weights = {
             'exercise': w_exercise, 'phase': w_phase,
             'fatigue':  w_fatigue,  'reps': w_reps,
         }
+        # Optional task selection — when set, only these tasks contribute to
+        # the total loss. Other heads are still computed for evaluation but
+        # their gradients do not update encoder weights via this loss.
+        # Use case: --tasks fatigue → train a fatigue-specialised model
+        # without exercise/phase/reps interference.
+        self.enabled = (set(enabled_tasks) if enabled_tasks else
+                        {'exercise', 'phase', 'fatigue', 'reps'})
         self.use_uncertainty = use_uncertainty_weighting
         if use_uncertainty_weighting:
-            # Learnable log-variance per task
-            self.log_var = nn.Parameter(torch.zeros(4))
+            # Learnable log-variance per ENABLED task; matches ordering below.
+            self._uw_keys = [k for k in ('exercise', 'phase', 'fatigue', 'reps')
+                              if k in self.enabled]
+            self.log_var = nn.Parameter(torch.zeros(len(self._uw_keys)))
         modes = {'reps': 'hard', 'phase': 'hard'}
         if target_modes:
             modes.update(target_modes)
@@ -101,12 +111,12 @@ class MultiTaskLoss(nn.Module):
             losses['reps'] = zero.clone()
 
         if self.use_uncertainty:
-            keys = ['exercise', 'phase', 'fatigue', 'reps']
             total = sum(
                 0.5 * torch.exp(-self.log_var[i]) * losses[k] + 0.5 * self.log_var[i]
-                for i, k in enumerate(keys)
+                for i, k in enumerate(self._uw_keys)
             )
         else:
-            total = sum(self.weights[k] * losses[k] for k in losses)
+            total = sum(self.weights[k] * losses[k]
+                        for k in losses if k in self.enabled)
 
         return total, losses
