@@ -224,8 +224,11 @@ def main():
                         'gradients.')
     p.add_argument('--reps-mode',
                    choices=['hard', 'soft_window', 'soft_overlap'],
-                   default='hard',
-                   help='Rep-counting target representation. soft_overlap = '
+                   default='soft_window',
+                   help='Rep-counting target representation. Default: '
+                        'soft_window (ρ(t)=1/Δt_k integrated over window; '
+                        'integer count recovered at eval via '
+                        'src/eval/rep_aggregation.py). soft_overlap = '
                         'Wang et al. 2026 overlap-fraction labels (requires '
                         'scripts/add_soft_overlap_reps.py to have been run).')
     p.add_argument('--phase-mode',

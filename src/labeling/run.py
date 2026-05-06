@@ -96,6 +96,41 @@ _ACC_PHASE_FALLBACK_EXERCISES = {"squat", "deadlift"}
 # canonical selection runs. Recordings with > 12 - len(excluded)
 # clean markers will still produce 12 canonical sets; otherwise the
 # pipeline accepts fewer.
+# Per-recording blacklists curated from QC plot review (post-labeling).
+# Entries here apply AFTER labeling — they rewrite the parquet to mark
+# specific (recording_id, canonical set_number) pairs as bad without
+# re-running the labeler. See aligned_df post-processing in run().
+#
+# CANONICAL set numbers (1..N as they appear in the parquet's set_number
+# column and in inspections/segmentation_qc/*/per_set/set_NN_*.png), NOT
+# original marker numbers.
+#
+# PHASE_REPS: phase_label set to "unknown" and rep_density_hz set to 0
+#   (rep_count_in_set set to NaN) for these sets — they are excluded from
+#   phase-head training and reps-head training. Other heads (exercise,
+#   fatigue) still see them.
+# ALL_HEADS: in_active_set set to False — entire set excluded from every
+#   training task. Use when the joint data and the marker sequence both
+#   look broken (e.g. wrong recording attached to a set window).
+_PHASE_REPS_BLACKLIST: set[tuple[str, int]] = {
+    ("recording_003", 11),
+    ("recording_006", 9),
+    ("recording_007", 7), ("recording_007", 8), ("recording_007", 9),
+    ("recording_008", 3),
+    ("recording_008", 9), ("recording_008", 10), ("recording_008", 11),
+    ("recording_008", 12),
+    ("recording_009", 5), ("recording_009", 6),
+    ("recording_011", 3),
+    ("recording_011", 8), ("recording_011", 9),
+    ("recording_011", 10), ("recording_011", 11),
+    ("recording_013", 7),
+    ("recording_014", 7), ("recording_014", 11), ("recording_014", 12),
+}
+_ALL_HEADS_BLACKLIST: set[tuple[str, int]] = {
+    ("recording_009", 10), ("recording_009", 11), ("recording_009", 12),
+}
+
+
 _MANUAL_MARKER_EXCLUSIONS: dict[str, set[int]] = {
     # rec_008: orig markers 8 and 9 are both aborted pullup attempts
     # (2 reps/15s and 3 reps/15s respectively) preceding the real pullup
@@ -796,6 +831,54 @@ def label_one_recording(
 
         # Add EDA status as a constant column for downstream filtering
         aligned_df["eda_status"] = eda_status
+
+        # ---------------------------------------------------------------
+        # Apply curated per-set blacklists from QC review
+        # ---------------------------------------------------------------
+        phase_reps_blocked = []
+        for (bl_rec, bl_set) in _PHASE_REPS_BLACKLIST:
+            if bl_rec != rec_id:
+                continue
+            sel = (aligned_df["set_number"] == bl_set) & \
+                  aligned_df["in_active_set"]
+            if sel.any():
+                aligned_df.loc[sel, "phase_label"] = "unknown"
+                aligned_df.loc[sel, "rep_density_hz"] = 0.0
+                aligned_df.loc[sel, "rep_count_in_set"] = np.nan
+                aligned_df.loc[sel, "rep_index"] = np.nan
+                phase_reps_blocked.append(bl_set)
+
+        all_heads_blocked = []
+        for (bl_rec, bl_set) in _ALL_HEADS_BLACKLIST:
+            if bl_rec != rec_id:
+                continue
+            sel = aligned_df["set_number"] == bl_set
+            if sel.any():
+                aligned_df.loc[sel, "in_active_set"] = False
+                aligned_df.loc[sel, "phase_label"] = "rest"
+                aligned_df.loc[sel, "rep_density_hz"] = 0.0
+                aligned_df.loc[sel, "rep_count_in_set"] = np.nan
+                aligned_df.loc[sel, "rep_index"] = np.nan
+                aligned_df.loc[sel, "rpe_for_this_set"] = np.nan
+                aligned_df.loc[sel, "exercise"] = np.nan
+                aligned_df.loc[sel, "set_number"] = np.nan
+                all_heads_blocked.append(bl_set)
+
+        if phase_reps_blocked:
+            print(f"  [{rec_id}] PHASE+REPS blacklist applied to canonical "
+                  f"sets {sorted(phase_reps_blocked)}")
+            result["flags"].append(
+                f"PHASE+REPS blacklist applied to canonical sets "
+                f"{sorted(phase_reps_blocked)} (set in_active stays True; "
+                f"phase_label=unknown, rep_density=0)"
+            )
+        if all_heads_blocked:
+            print(f"  [{rec_id}] ALL-HEADS blacklist applied to canonical "
+                  f"sets {sorted(all_heads_blocked)}")
+            result["flags"].append(
+                f"ALL-HEADS blacklist applied to canonical sets "
+                f"{sorted(all_heads_blocked)} (in_active=False)"
+            )
 
         # ---------------------------------------------------------------
         # Step 13: write parquet

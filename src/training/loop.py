@@ -103,14 +103,16 @@ class TrainConfig:
     patience: int = 8
     mixed_precision: bool = True
     num_workers: int = 4
-    use_uncertainty_weighting: bool = False
+    use_uncertainty_weighting: bool = True
     loss_weights: Dict[str, float] = field(default_factory=lambda: {
         'exercise': 1.0, 'phase': 1.0, 'fatigue': 1.0, 'reps': 0.5
     })
-    # Per-task target representation; defaults preserve hard-label baseline.
-    # See configs/nn.yaml `target_modes` and src/training/losses.py.
+    # Per-task target representation; matches configs/nn.yaml.
+    # reps='soft_window'  : ρ(t)=1/Δt_k integrated over window; integer count
+    #                       recovered at eval via src/eval/rep_aggregation.py.
+    # phase='soft'        : KL-div on per-window phase distribution.
     target_modes: Dict[str, str] = field(default_factory=lambda: {
-        'reps': 'hard', 'phase': 'hard',
+        'reps': 'soft_window', 'phase': 'soft',
     })
     # Tasks contributing to the total loss. Default: all 4 (multi-task).
     # Single-task example: enabled_tasks=['fatigue'] → fatigue-only model.

@@ -382,16 +382,26 @@ def label_phase(
             return pd.Series(np.full(n, "unknown", dtype=object),
                               index=angle_series.index)
 
-        # Smooth the angle (not the velocity) for peak detection
-        from scipy.signal import butter, filtfilt, find_peaks
+        # Smooth the angle (not the velocity) for peak detection. Use the
+        # same two-stage pipeline as smooth_angles_for_rep_detection so the
+        # phase labeler and the rep counter operate on identical traces.
+        # Per-exercise lp_hz / order / medfilt-kernel from
+        # _REP_DETECTION_PARAMS — see definition for tuning rationale.
+        from scipy.signal import butter, filtfilt, find_peaks, medfilt
         a_smooth = angles.copy()
         if not finite.all():
             xp = np.where(finite)[0]
             fp = angles[finite]
             a_smooth = np.interp(np.arange(n), xp, fp)
-        if velocity_lp_hz > 0 and fs > 2 * velocity_lp_hz:
+
+        params = get_rep_detection_params(exercise)
+        medfilt_k = int(params.get("medfilt_k", 5))
+        lp_hz = float(params.get("lp_hz", velocity_lp_hz))
+        lp_order = int(params.get("lp_order", 2))
+        a_smooth = medfilt(a_smooth, kernel_size=medfilt_k)
+        if lp_hz > 0 and fs > 2 * lp_hz:
             try:
-                b, a = butter(4, velocity_lp_hz, btype="low", fs=fs)
+                b, a = butter(lp_order, lp_hz, btype="low", fs=fs)
                 a_smooth = filtfilt(b, a, a_smooth)
             except ValueError:
                 pass
@@ -467,13 +477,36 @@ def label_phase(
             return pd.Series(np.full(n, "unknown", dtype=object),
                               index=angle_series.index)
 
+        # Snap each anchor to the nearest extremum of the RAW (unsmoothed)
+        # angle within a ±snap_w-frame window. The smoothing widens the
+        # peak/valley plateau, which can shift the smoothed-signal extremum
+        # by 1-3 frames from the raw extremum visible in QC plots. Snapping
+        # makes the phase boundaries land exactly on the raw peak/valley.
+        snap_w = max(2, int(round(0.20 * fs)))  # ±0.20 s @ 30 fps ≈ 6 frames
+        raw_search = -angles if not phase_inverted else angles  # find valley (non-inverted) or peak (inverted)
+
+        def _snap(idx: int, signal: np.ndarray) -> int:
+            lo = max(0, idx - snap_w)
+            hi = min(n, idx + snap_w + 1)
+            seg = signal[lo:hi]
+            if len(seg) == 0 or not np.any(np.isfinite(seg)):
+                return idx
+            return lo + int(np.nanargmax(seg))
+
+        anchors_snapped = np.array([_snap(int(a), raw_search) for a in anchors],
+                                     dtype=int)
+        anchors_snapped = np.sort(np.unique(anchors_snapped))
+
         # Each rep cycle is bounded by consecutive anchors (valleys for
         # non-inverted, peaks for inverted). Inside each cycle, we split
         # at the local extremum of the OPPOSITE type — for non-inverted,
         # the peak in between two valleys; for inverted, the valley
         # between two peaks.
         opposite_signal = -search_signal
+        # For mid-snapping: opposite-type extremum on the raw signal
+        raw_opposite = angles if not phase_inverted else -angles
         phases = np.full(n, "unknown", dtype=object)
+        anchors = anchors_snapped
 
         # Phase before the first anchor: in a non-inverted exercise, we
         # start at the top of motion → going down to first valley = ecc.
@@ -499,12 +532,23 @@ def label_phase(
             s = anchors[i]
             e = anchors[i + 1]
             # Find the opposite-type extremum between s and e (highest
-            # peak between two valleys, or deepest valley between two peaks)
+            # peak between two valleys, or deepest valley between two peaks).
+            # Detect on smoothed signal for noise robustness, then snap to
+            # nearest raw-signal extremum so the phase boundary lands on
+            # the visible peak/valley.
             seg = opposite_signal[s:e]
             if len(seg) > 2:
-                mid = s + int(np.argmax(seg))
+                mid_smooth = s + int(np.argmax(seg))
             else:
-                mid = s + (e - s) // 2  # degenerate fallback
+                mid_smooth = s + (e - s) // 2  # degenerate fallback
+            # Snap mid to nearest raw-opposite extremum within ±snap_w
+            lo = max(s, mid_smooth - snap_w)
+            hi = min(e, mid_smooth + snap_w + 1)
+            raw_seg = raw_opposite[lo:hi]
+            if len(raw_seg) > 0 and np.any(np.isfinite(raw_seg)):
+                mid = lo + int(np.nanargmax(raw_seg))
+            else:
+                mid = mid_smooth
             phases[s:mid] = in_cycle_first
             phases[mid:e] = in_cycle_second
 
@@ -773,8 +817,15 @@ def label_phase_from_acc(
             # Pre-region: before first center, label = first center type
             first_idx, first_lbl = all_centers[0]
             phases[:first_idx] = first_lbl
-            # Each segment between centers: split halfway, first half =
-            # type of left center, second half = type of right center
+            # Each segment between two opposite-type centers: phase
+            # boundary at the velocity ZERO-CROSSING (= peak/valley of
+            # vertical position), NOT at the midpoint of time. The naive
+            # midpoint placed the boundary in the middle of motion rather
+            # than at the actual top/bottom of the rep — producing a
+            # systematic ~0.2-0.4 s drift on benchpress where reps are
+            # quick and the velocity peaks are sharper than the position
+            # extrema. Fall back to midpoint when no zero-crossing exists
+            # in the segment (very rare; happens only if v is monotonic).
             for i in range(len(all_centers) - 1):
                 s, sl = all_centers[i]
                 e, el = all_centers[i + 1]
@@ -782,7 +833,20 @@ def label_phase_from_acc(
                     # same type both sides — fill with that label
                     phases[s:e] = sl
                 else:
-                    mid = (s + e) // 2
+                    seg = v[s:e]
+                    if len(seg) >= 2:
+                        sgn = np.sign(seg)
+                        zc = np.where(np.diff(sgn) != 0)[0]
+                        if len(zc) > 0:
+                            # If multiple zero-crossings, pick the one
+                            # closest to the geometric midpoint (avoids
+                            # picking a brief jitter-crossing near s or e)
+                            mid_target = (e - s) // 2
+                            mid = s + int(zc[np.argmin(np.abs(zc - mid_target))])
+                        else:
+                            mid = (s + e) // 2
+                    else:
+                        mid = (s + e) // 2
                     phases[s:mid] = sl
                     phases[mid:e] = el
             # Post-region
@@ -921,6 +985,28 @@ def count_reps_from_acc(
                 break
         if valleys is None:
             return pd.Series(np.zeros(n, dtype=int))
+
+        # Snap each "negative-velocity peak" (= mid-descent) forward to
+        # the NEXT velocity zero-crossing (negative→positive transition).
+        # That zero-crossing IS the bottom of motion — the position valley
+        # — and is where we want to count each rep. Without this snap,
+        # rep transitions land mid-descent rather than at bottom-of-motion,
+        # which is what the user sees in QC plots as a ~0.3-0.5 s offset.
+        # If no zero-crossing is found in a 1-second window forward, keep
+        # the original index (degenerate case).
+        snap_max = max(1, int(round(1.0 * fs)))
+        snapped = []
+        for v_idx in valleys:
+            stop = min(n - 1, int(v_idx) + snap_max)
+            window = v[v_idx:stop + 1]
+            if len(window) >= 2:
+                sgn = np.sign(window)
+                zc = np.where((sgn[:-1] < 0) & (sgn[1:] >= 0))[0]
+                if len(zc) > 0:
+                    snapped.append(int(v_idx) + int(zc[0]) + 1)
+                    continue
+            snapped.append(int(v_idx))
+        valleys = np.sort(np.unique(np.array(snapped, dtype=int)))
     else:
         # Free mode: every prominent negative velocity peak counts as a rep.
         # Prominence threshold = 0.05 (m/s surrogate units, matches the
@@ -942,15 +1028,30 @@ def count_reps_from_acc(
 # Per-exercise tuning for rep detection. Centralised so the QC visualizer
 # (scripts/visualize_joint_reps.py) can render the exact same smoothed
 # trace the detector operates on.
+# Smoothing tuned to preserve peak/valley sharpness while killing
+# Kinect jitter. Pipeline:
+#   medfilt(kernel=5)        → kills 1-2 frame spikes (sub-rep flutter)
+#   butter(2, lp_hz, lowpass) → gentler rolloff than order 4; lets through
+#                                content up to ~2× lp_hz with light
+#                                attenuation, so peak shape is preserved
+# Per-exercise lp_hz: tuned to ~3-4× rep frequency so the rep cycle itself
+# is well within passband. Increased from earlier values (1.0-2.0 Hz) to
+# fix over-smoothing that rounded peak/valley positions and caused
+# phase-boundary drift (issue: phase boundaries lagged peaks by ~3-5
+# frames after the old 4th-order @ 1 Hz filter).
 _REP_DETECTION_PARAMS = {
     "squat":      {"prom_frac": 0.40, "prom_floor": 12.0, "min_dist_s": 0.8,
-                    "min_range": 30.0, "lp_hz": 1.5},
+                    "min_range": 30.0, "lp_hz": 2.5, "lp_order": 2,
+                    "medfilt_k": 5},
     "deadlift":   {"prom_frac": 0.22, "prom_floor": 5.0,  "min_dist_s": 1.0,
-                    "min_range": 7.0, "lp_hz": 2.0},
+                    "min_range": 7.0, "lp_hz": 2.5, "lp_order": 2,
+                    "medfilt_k": 5},
     "pullup":     {"prom_frac": 0.35, "prom_floor": 10.0, "min_dist_s": 1.0,
-                    "min_range": 20.0, "lp_hz": 1.5},
+                    "min_range": 20.0, "lp_hz": 2.5, "lp_order": 2,
+                    "medfilt_k": 5},
     "benchpress": {"prom_frac": 0.35, "prom_floor": 10.0, "min_dist_s": 1.0,
-                    "min_range": 20.0, "lp_hz": 1.0},
+                    "min_range": 20.0, "lp_hz": 2.0, "lp_order": 2,
+                    "medfilt_k": 5},
 }
 _REP_DETECTION_DEFAULT = _REP_DETECTION_PARAMS["benchpress"]
 
@@ -996,10 +1097,13 @@ def smooth_angles_for_rep_detection(
         fp = angles[finite]
         a_smooth = np.interp(np.arange(n), xp, fp)
 
-    a_smooth = medfilt(a_smooth, kernel_size=3)
+    params = get_rep_detection_params(exercise)
+    medfilt_k = int(params.get("medfilt_k", 5))
+    lp_order = int(params.get("lp_order", 2))
+    a_smooth = medfilt(a_smooth, kernel_size=medfilt_k)
     if fs > 2 * lp_hz:
         try:
-            b, a = butter(4, lp_hz, btype="low", fs=fs)
+            b, a = butter(lp_order, lp_hz, btype="low", fs=fs)
             a_smooth = filtfilt(b, a, a_smooth)
         except ValueError:
             pass
@@ -1129,6 +1233,22 @@ def count_reps_from_angles(
             # is genuinely too flat to support the target rep count. Caller
             # falls back to markers.
             return pd.Series(np.zeros(n, dtype=int), index=angle_series.index)
+
+        # Snap each valley to the nearest extremum of the RAW (unsmoothed)
+        # angle within a ±snap_w-frame window, so rep transitions align
+        # exactly with the visible peak/valley in QC plots.
+        snap_w = max(2, int(round(0.20 * fs)))
+        raw_search = -angles if not phase_inverted else angles
+        snapped = []
+        for v in valleys:
+            lo = max(0, int(v) - snap_w)
+            hi = min(n, int(v) + snap_w + 1)
+            seg = raw_search[lo:hi]
+            if len(seg) > 0 and np.any(np.isfinite(seg)):
+                snapped.append(lo + int(np.nanargmax(seg)))
+            else:
+                snapped.append(int(v))
+        valleys = np.sort(np.unique(np.array(snapped, dtype=int)))
 
         # Anchored mode counts each valley as one rep event.
         valley_times = [times[v] for v in valleys]

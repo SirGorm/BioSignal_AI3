@@ -479,7 +479,15 @@ class RawMultimodalWindowDataset(Dataset):
             density = np.nan_to_num(density, nan=0.0)
             rep_float = float(density.mean() * self.window_s)
             in_act = row.get('in_active_set', False)
-            rep_valid = bool(in_act) if pd.notna(in_act) else False
+            # Mask reps when rep_count_in_set is NaN at end-of-window. This
+            # is how the per-set blacklist (src/labeling/run.py
+            # _PHASE_REPS_BLACKLIST) signals "active set, but reps are
+            # untrustworthy — do not contribute to the reps loss".
+            rc_val = row.get('rep_count_in_set')
+            rep_valid = (
+                bool(in_act) and pd.notna(rc_val)
+                if pd.notna(in_act) else False
+            )
         else:
             rep_val = row['rep_count_in_set']
             rep_float = float(rep_val) if pd.notna(rep_val) else float('nan')

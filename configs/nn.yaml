@@ -74,8 +74,9 @@ multitask_loss_weights:
 target_modes:
   exercise: hard             # set boundaries are well separated -> no gain
   fatigue:  hard             # one RPE per set, already continuous
-  reps:     hard
-  phase:    hard
+  reps:     soft_window      # ρ(t)=1/Δt_k integrated over window; recover integer
+                             # count at eval via src/eval/rep_aggregation.py
+  phase:    soft             # KL-div on per-window phase distribution
 
 cv:
   reuse_baseline_splits: true   # MUST reuse configs/splits.csv from /train

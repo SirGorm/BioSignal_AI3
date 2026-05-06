@@ -333,19 +333,43 @@ def parse_rep_markers(markers: List[Dict]) -> Dict[int, List[float]]:
     return out
 
 
+def parse_set_starts(markers: List[Dict]) -> Dict[int, float]:
+    """Return {set_num: unix_time of Set:N_Start marker}.
+
+    markers.json set numbering is the authoritative source — labeling
+    pipeline uses these timestamps. metadata.json kinect_sets numbering
+    can diverge (e.g. when the user aborts a set the depth camera kept
+    recording). Cross-checks must map parquet sets to markers Set:N by
+    START TIME, not by kinect_sets[i].set_number.
+    """
+    out: Dict[int, float] = {}
+    for entry in markers:
+        lbl = entry.get("label", "")
+        if lbl.startswith("Set:") and lbl.endswith("_Start"):
+            try:
+                sn = int(lbl.replace("Set:", "").replace("_Start", ""))
+                out[sn] = float(entry["unix_time"])
+            except (ValueError, KeyError):
+                continue
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Sanity checks: parquet labels vs. raw sources
 # ---------------------------------------------------------------------------
 
 def cross_check(df: pd.DataFrame, kinect_sets: List[Dict],
-                rep_markers: Dict[int, List[float]]) -> List[Dict]:
+                rep_markers: Dict[int, List[float]],
+                set_starts: Optional[Dict[int, float]] = None) -> List[Dict]:
     """Compare parquet's derived labels against raw metadata/markers.
 
     Important: parquet's `set_number` column uses CANONICAL positional
     indexing (1..12), not the original metadata set_number (which can be
     1..15 when the recording has aborted/restarted attempts). We therefore
     match each parquet set to its corresponding metadata entry BY TIME,
-    not by index.
+    not by index. Furthermore, kinect_sets[i].set_number can diverge from
+    markers.json Set:N numbering — the labeling pipeline trusts markers,
+    so rep-count cross-checks must match by markers Set:N_Start time too.
 
     Returns list of {level, msg}.
     """
@@ -398,17 +422,38 @@ def cross_check(df: pd.DataFrame, kinect_sets: List[Dict],
                                  f"start drift {d_start*1000:.1f} ms, "
                                  f"end drift {d_end*1000:.1f} ms vs metadata"})
 
-    # 3. Per-set rep count: parquet rep_count_in_set max vs. raw markers count
-    #    using the matched original set_number for rep_markers lookup.
-    for sn, meta in parquet_to_meta.items():
+    # 3. Per-set rep count: parquet rep_count_in_set max vs. raw markers count.
+    #    Match parquet set start time → markers Set:N_Start time directly,
+    #    NOT via kinect_sets numbering. The two numberings can diverge when
+    #    the user aborted a set the depth camera kept recording (rec_006
+    #    is a documented case: kinect_sets[4] != markers Set:4 by 143 s).
+    if set_starts is None:
+        set_starts = {}
+    set_starts_sorted = sorted(set_starts.items(), key=lambda kv: kv[1])
+    for sn in parquet_sets:
         sub = df[df["set_number"] == sn]
+        p_start = float(sub["t_unix"].min())
         max_rep = sub["rep_count_in_set"].max()
         parquet_n = int(max_rep) if pd.notna(max_rep) else 0
-        orig_sn = meta["set_number"]
-        raw_n = len(rep_markers.get(orig_sn, []))
+
+        # Find closest markers Set:N_Start by time
+        best_sn = None
+        best_dt = float("inf")
+        for cand_sn, cand_t in set_starts_sorted:
+            dt = abs(cand_t - p_start)
+            if dt < best_dt:
+                best_dt = dt
+                best_sn = cand_sn
+        if best_sn is None or best_dt > 2.0:
+            flags.append({"level": "warn",
+                          "msg": f"Canonical set {sn}: no markers Set:N_Start "
+                                 f"within 2 s of parquet start time"})
+            continue
+
+        raw_n = len(rep_markers.get(best_sn, []))
         if parquet_n != raw_n:
             flags.append({"level": "warn",
-                          "msg": f"Canonical set {sn} (orig {orig_sn}): "
+                          "msg": f"Canonical set {sn} (markers Set:{best_sn}): "
                                  f"parquet says {parquet_n} reps, markers.json "
                                  f"says {raw_n}"})
 
@@ -1009,7 +1054,9 @@ def main():
     kinect_sets, _ = load_raw_metadata(aligned_dir)
     raw_markers = load_raw_markers(aligned_dir)
     rep_markers = parse_rep_markers(raw_markers)
+    set_starts = parse_set_starts(raw_markers)
     print(f"[viz]   {len(kinect_sets)} kinect_sets, "
+          f"{len(set_starts)} marker-set starts, "
           f"{sum(len(v) for v in rep_markers.values())} rep markers")
 
     if args.report_only:
@@ -1022,7 +1069,7 @@ def main():
         sigs_native = filter_all_modalities_native(aligned_dir, t_lo, t_hi)
 
     print(f"[viz] Cross-checking parquet labels vs raw sources")
-    flags = cross_check(df, kinect_sets, rep_markers)
+    flags = cross_check(df, kinect_sets, rep_markers, set_starts=set_starts)
     n_warn = sum(1 for f in flags if f["level"] == "warn")
     print(f"[viz]   {n_warn} warning(s)")
 

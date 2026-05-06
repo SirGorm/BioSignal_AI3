@@ -25,13 +25,17 @@ Sanntidsestimering under styrketrening fra 6 biosignal-modaliteter. Fase og reps
 | Modalitet | Fil | Kolonne | Sample rate | Plassering | Causal filter |
 |-----------|-----|---------|-------------|------------|---------------|
 | ECG | `ecg.csv` | `ecg` | **500 Hz** | brystelektroder | 0.5–40 Hz BP, 50 Hz notch |
-| EMG | `emg.csv` | `emg` | **2000 Hz** | underarm/biceps (bekreft per deltaker) | 20–450 Hz BP, 50 Hz notch |
+| EMG | `emg.csv` | `emg` | **2000 Hz** | underarm/biceps (bekreft per deltaker) | 20–450 Hz BP, 50 Hz notch, **deretter RMS-envelope (50 ms) → 100 Hz i parquet** |
 | EDA | `eda.csv` | `eda` | **50 Hz** | håndledd | 0.05–5 Hz LP |
 | Temp | `temperature.csv` | `temperature` | **1 Hz** | hud | LP 0.1 Hz |
 | Acc | `ax.csv`, `ay.csv`, `az.csv` → `acc_mag` | `ax`, `ay`, `az` | **100 Hz** | håndledd | 0.5–20 Hz BP **etter** magnitude |
 | PPG-grønn | `ppg_green.csv` | `ppg_green` | **100 Hz** | håndledd | 0.5–8 Hz BP |
 
 Hver modalitet er én CSV med kolonner `timestamp, <channel>` (Unix epoch i `timestamp`). PPG-loggen har 4 wavelengths (`ppg_blue`, `ppg_green`, `ppg_red`, `ppg_ir`) — vi bruker bare grønn (`ppg_green.csv`). De andre lastes inn men ignoreres for modellinput. Strømnett-frekvens i Norge = **50 Hz** → notch er obligatorisk på ECG og EMG.
+
+**EMG har to løp i pipelinen** (se [src/labeling/align.py:emg_envelope](src/labeling/align.py)):
+- **Rå-NN-vei**: native 2000 Hz → 20–450 Hz BP + 50 Hz notch → kvadrer → 50 ms moving-average → √ → lineær interpolasjon til 100 Hz griden. RMS-vinduet er anti-aliasing-LP for 20:1 decimering. Det er denne envelope-en som ligger i `aligned_features.parquet` kolonnen `emg`, og som alle raw-modeller (1D-CNN, LSTM, CNN-LSTM, TCN) leser fra.
+- **Feature-vei**: native 2000 Hz CSV lastes på nytt av [src/features/emg_features.py](src/features/emg_features.py) for å beregne MNF, MDF, Dimitrov FInsm5 (krever full spektral båndbredde, kan ikke beregnes fra envelope). 500 ms vindu, 100 ms hop, baseline-norm via median av første 60 s.
 
 `temperature.csv` i `dataset_aligned/` er hentet fra memory-varianten med offset-korrigering (se "Datakilde og synkronisering"). Dataset-variantens `temperature.csv` er tom/manglende i alle 9 opptak.
 
@@ -188,7 +192,7 @@ configs/, tests/
 **Modell-input består av 4 modaliteter: EMG, Acc, PPG-green, Temp.** ECG og EDA er ekskludert (se under). Eksklusjonen håndheves av `EXCLUDED_FEATURE_PREFIXES = ('ecg_', 'eda_')` i [src/data/datasets.py](src/data/datasets.py) (features-vei) og av `RAW_CHANNELS` i [src/data/raw_window_dataset.py](src/data/raw_window_dataset.py) (rå-vei). Streaming-extractorene for ECG/EDA er beholdt for diagnostikk, men outputene deres entrer ikke modellen.
 
 - **ECG**: ❌ ekskludert — signalkvalitet er utilstrekkelig på dette datasettet (verifisert via [scripts/compare_ecg_filtering.py](scripts/compare_ecg_filtering.py); QRS-morfologi er ustabil selv etter NeuroKit2-rensing)
-- **EMG**: MNF, MDF, Dimitrov FInsm5, RMS, slopes innen sett → fatigue (rask, dominerende)
+- **EMG**: feature-vei: MNF, MDF, Dimitrov FInsm5, RMS, slopes innen sett → fatigue (rask, dominerende). Rå-NN-vei: 50 ms RMS-envelope @ 100 Hz (amplitude only — spektrale fatigue-features er ikke tilgjengelig på 100 Hz pga Nyquist; bruk feature-veien for fatigue).
 - **EDA**: ❌ ekskludert — alle 9 opptak feiler dynamic-range-terskel (std < 1e-7 S, sensor-floor; Greco et al. 2016)
 - **Temp**: slope over session → fatigue (treghet)
 - **Acc-magnitude**: motion intensity, dominant frekvens, jerk → exercise + reps
@@ -206,7 +210,7 @@ configs/, tests/
 
 ## Hva subagentene leverer
 
-- **data-labeler**: `aligned_features.parquet` per opptak med kolonner `recording_id, subject_name, t_unix, t_session_s, in_active_set, exercise, set_number, set_phase, joint_*, phase_label, rep_count_in_set, rep_index, rpe_for_this_set` + alle 6 modaliteter rå (resamplet til felles fs eller med per-modalitet timestamp-vektor — bestemmes av `data-labeler`-skillet)
+- **data-labeler**: `aligned_features.parquet` per opptak med kolonner `recording_id, subject_name, t_unix, t_session_s, in_active_set, exercise, set_number, set_phase, joint_*, phase_label, rep_count_in_set, rep_index, rpe_for_this_set, rep_density_hz` + biosignaler resamplet til 100 Hz grid (ECG/EDA/PPG/IMU lineær interpolasjon, temp forward-fill, **EMG som RMS-envelope** — se hardware-tabellen)
 - **biosignal-feature-extractor**: `window_features.parquet` + `set_features.parquet`, causal-versjon i `src/streaming/`, offline i `src/features/`, parity-test
 - **ml-expert**: 4 trente Random Forest-modeller (BASELINE), LOSO-CV, per-subject metrikker, latency-benchmark, `model_card.md` med References-seksjon
 - **dl-expert**: 4 NN-arkitekturer (1D-CNN, LSTM, CNN-LSTM, TCN), reuser samme folds som Random Forest, 3 seeds, sammenligningsrapport, deployment-anbefaling for sanntid

@@ -343,7 +343,15 @@ class WindowFeatureDataset(Dataset):
             in_act = (df['in_active_set'].astype(bool).to_numpy()
                       if 'in_active_set' in df.columns
                       else ~np.isnan(reps))
-            self.m_reps = torch.from_numpy(in_act & ~np.isnan(reps))
+            # Mask reps when rep_count_in_set is NaN — same blacklist
+            # signal as raw_window_dataset (set by run.py
+            # _PHASE_REPS_BLACKLIST). Active windows with valid soft target
+            # but NaN rep_count → blacklisted set, do not contribute to loss.
+            rc = (df['rep_count_in_set'].to_numpy(dtype=np.float32)
+                  if 'rep_count_in_set' in df.columns
+                  else np.zeros(len(df), dtype=np.float32))
+            rc_valid = ~np.isnan(rc)
+            self.m_reps = torch.from_numpy(in_act & ~np.isnan(reps) & rc_valid)
         else:
             reps = df['rep_count_in_set'].to_numpy(dtype=np.float32)
             self.m_reps = torch.from_numpy(~np.isnan(reps))

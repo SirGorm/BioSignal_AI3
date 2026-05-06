@@ -1,0 +1,374 @@
+# Methods reference config for the thesis "Strength-RT".
+#
+# Single source of truth for every numeric / categorical decision that needs
+# to appear in the Method chapter. Cross-checked against the source code on
+# 2026-05-06. Each value points to the file:line where the project actually
+# uses it, so the chapter can cite this file and stay in sync with the code.
+#
+# This file is documentation: nothing reads it at runtime. The runtime
+# configs are configs/default.yaml (LightGBM / labeling) and configs/nn.yaml
+# (neural networks).
+
+# -----------------------------------------------------------------------
+# Dataset
+# -----------------------------------------------------------------------
+dataset:
+  participants_total: 12
+  sessions_used_for_training: 11
+  recording_ids_in_dataset_aligned:
+    - recording_003
+    - recording_006
+    - recording_007
+    - recording_008
+    - recording_009
+    - recording_010
+    - recording_011
+    - recording_012
+    - recording_013
+    - recording_014
+  excluded_recording: recording_004           # depth-camera malfunction
+  excluded_sets_partial:
+    recording_007: {deadlift: 2}              # missing joint data
+    recording_008: {pullup:   2}
+    recording_009: {pullup:   3}
+  exercises: [benchpress, deadlift, pullup, squat]
+  sets_per_exercise: 3
+  sets_per_session: 12                        # 4 exercises × 3 sets
+  reps_per_set_target: "8-10"
+  load_pct_1rm: 70
+  rest_between_sets_s: 120
+  baseline_rest_at_session_start_s: 120
+  rpe_scale: borg_cr10                        # 0..10
+  source_of_truth_dir: dataset_aligned/
+  alignment_offsets_file: dataset_aligned/alignment_offsets.json
+  authoritative_clock: unix_epoch_seconds
+  parquet_grid_fs_hz: 100                     # src/data/raw_window_dataset.py:53
+
+# -----------------------------------------------------------------------
+# Sensor sample rates (BioPoint V1.3 hardware spec, verified by /inspect)
+# -----------------------------------------------------------------------
+sample_rates_native_hz:
+  ecg: 500
+  emg: 2000
+  eda: 50
+  temp: 1
+  acc: 100
+  ppg_green: 100
+# default.yaml sample_rates block is stale (eda 32, temp 4, ppg 64) — use
+# the values above; they match CLAUDE.md and metadata.json on every recording.
+
+# -----------------------------------------------------------------------
+# Modalities entering the model
+# -----------------------------------------------------------------------
+model_input_modalities: [emg, ppg_green, acc_mag, temp]   # src/data/raw_window_dataset.py:48
+n_input_channels: 4
+modalities_recorded_but_excluded:
+  ecg:
+    reason: "QRS morphology unstable on this dataset"
+    verified_by: scripts/compare_ecg_filtering.py
+  eda:
+    reason: "all 9 sessions fail dynamic-range threshold (std < 1e-7 S, sensor floor)"
+    citation: "Greco et al. 2016"
+
+# -----------------------------------------------------------------------
+# Filtering (offline pipeline; causal versions live in src/streaming/)
+# -----------------------------------------------------------------------
+filters:
+  ecg:       {type: butterworth, order: 4, band_hz: [0.5, 40], notch_hz: 50}
+  emg:       {type: butterworth, order: 4, band_hz: [20, 450], notch_hz: 50}
+  eda:       {type: butterworth, order: 4, lowpass_hz: 5}
+  temp:      {type: butterworth, order: 2, lowpass_hz: 0.1}
+  acc:       {type: butterworth, order: 4, band_hz: [0.5, 20], applied_to: acc_mag}
+  ppg_green: {type: butterworth, order: 4, band_hz: [0.5, 8]}
+acc_magnitude_formula: "a_mag = sqrt(ax**2 + ay**2 + az**2)"
+acc_filter_order: "magnitude FIRST, then bandpass"   # src/features/acc_features.py:4
+
+# EMG path into the raw NN models (raw-cnn1d, raw-lstm, raw-cnn_lstm, raw-tcn).
+# The aligned parquet stores an RMS envelope, NOT a downsampled raw signal.
+emg_envelope_pipeline:
+  defined_in: src/labeling/align.py:emg_envelope
+  steps:
+    - "1. Bandpass 20-450 Hz (Butterworth 4th order, sosfiltfilt) at native 2000 Hz"
+    - "2. Notch 50 Hz (IIR, Q=30, filtfilt) at native 2000 Hz"
+    - "3. Square the signal"
+    - "4. Centered moving-average over 50 ms (acts as anti-aliasing LP)"
+    - "5. Square root → RMS envelope at 2000 Hz"
+    - "6. Linear interpolation onto 100 Hz grid"
+  rms_window_ms: 50
+  effective_lowpass_hz: 20         # first zero of 50 ms boxcar
+  decimation_ratio: 20             # 2000 Hz → 100 Hz
+  rationale: "RMS window doubles as the anti-aliasing filter (Oppenheim & Schafer 2010)"
+  references:
+    - "Konrad 2005 — 50-100 ms RMS window standard for sEMG amplitude"
+    - "Merletti & Parker 2004 — smoothed-rectification amplitude estimation"
+    - "De Luca 1997 — 20-450 Hz EMG bandpass"
+  spectral_features_still_native_2000hz:
+    pipeline: src/features/emg_features.py
+    feeds: [random_forest_baseline, feat_NN_variants]
+    note: "MNF, MDF, Dimitrov FInsm5 are computed BEFORE envelope on the native 2000 Hz CSV"
+
+# -----------------------------------------------------------------------
+# Windowing
+# -----------------------------------------------------------------------
+windowing:
+  window_s: 2.0                # configs/nn.yaml:5
+  hop_s: 1.0                   # configs/nn.yaml:6  (50 % overlap)
+  overlap_pct: 50
+  samples_per_window: 200      # 2.0 s × 100 Hz
+  normalization: zscore_per_channel_per_recording
+  baseline_window_s: 90        # src/data/raw_window_dataset.py:54 (BASELINE_SAMPLES=9000)
+  amplitude_clip_sigma: 5.0    # src/data/raw_window_dataset.py:55
+  active_only: true            # drop windows where in_active_set is False
+
+# Sweep tested at w_s ∈ {1, 2, 5} s — see runs/comparison_v13/v13_all_results.csv
+# (campaigns v13single and v13soft). 2 s selected as primary (chapter rationale).
+window_size_sweep:
+  values_s: [1.0, 2.0, 5.0]
+  selected_s: 2.0
+
+# -----------------------------------------------------------------------
+# Tasks and target representations
+# -----------------------------------------------------------------------
+tasks: [exercise, phase, reps, fatigue]
+
+target_modes:
+  exercise: hard               # one class per window from set marker
+  phase:    hard               # alt: soft (KL-divergence over phase fractions)
+  reps:     hard               # alt: soft_window | soft_overlap
+  fatigue:  hard               # one RPE per set, broadcast to all windows in set
+
+# Soft-target rep formulation (used in v13soft campaigns)
+reps_soft_window:
+  description: "ρ(t) = 1 / Δt_k for samples inside rep k; 0 elsewhere"
+  per_window_target: "mean(ρ over window) × window_s = fractional reps in window"
+  defined_in: src/labeling/align.py:278-309
+  read_in:    src/data/raw_window_dataset.py:427-436
+  parquet_column: rep_density_hz
+
+reps_soft_overlap:
+  description: "y_cnt(window) = Σ_k overlap_fraction(rep_k, window)  (Wang 2026, Eq. 2)"
+  reference: "Wang et al. 2026, J Appl Sci Eng 31:26031038"
+  generated_by: scripts/add_soft_overlap_reps.py
+  parquet_column: soft_overlap_reps      # legacy 2 s; sized columns soft_overlap_reps_<w>s
+
+reps_aggregation_to_set_count:
+  formula: "count_set = round( Σ_w pred_w × hop_s / window_s )"
+  for_default_geometry: "scale = 1.0 / 2.0 = 0.5"
+  defined_in: src/eval/rep_aggregation.py:22-51
+  clip_negative_predictions: true
+
+phase_soft_target:
+  description: "probability vector = fraction of window samples per phase class"
+  loss: kl_divergence
+  unknown_mask_threshold: 0.5            # src/data/raw_window_dataset.py:70
+
+# -----------------------------------------------------------------------
+# Label generation from joint angles
+# -----------------------------------------------------------------------
+joint_labeling:
+  primary_joint:
+    squat:      knee_angle
+    deadlift:   hip_angle
+    benchpress: elbow_angle
+    pullup:     elbow_angle
+  bilateral_strategy: "average left + right"     # Fukuchi et al. 2018
+  angle_smoothing:
+    type: butterworth_lowpass
+    order: 4
+    cutoff_hz: 1.0                                # below typical rep frequency ~0.3 Hz
+  isometric_threshold_deg_s: 5                   # src/labeling/joint_angles.py:47
+  rep_detection_per_exercise:
+    squat:      {prom_frac: 0.40, prom_floor_deg: 12, min_dist_s: 1.2, min_range_deg: 30}
+    deadlift:   {prom_frac: 0.22, prom_floor_deg:  5, min_dist_s: 1.0, min_range_deg: 10}
+    pullup:     {prom_frac: 0.35, prom_floor_deg: 10, min_dist_s: 1.0, min_range_deg: 20}
+    benchpress: {prom_frac: 0.35, prom_floor_deg: 10, min_dist_s: 1.0, min_range_deg: 20}
+  fallback_when_joint_unreliable: marker_based_repetition_events
+  reject_set_if_nan_fraction_above: 0.50
+
+# -----------------------------------------------------------------------
+# Hand-crafted features (Random Forest baseline)
+# -----------------------------------------------------------------------
+handcrafted_features:
+  emg:
+    rate_hz: 2000
+    window_s: 0.5
+    hop_ms: 100
+    list: [emg_rms, emg_iemg, emg_mnf, emg_mdf, emg_dimitrov]
+    per_set: [emg_mnf_slope, emg_mdf_slope, emg_dimitrov_slope]
+    baseline_normalization: "value / baseline_median (first 60 s, rest only)"
+  acc:
+    rate_hz: 100
+    window_s: 2.0
+    hop_ms: 100
+    list: [acc_rms, acc_jerk_rms, acc_dom_freq, acc_rep_band_power, acc_rep_band_ratio]
+    rep_band_hz: [0.3, 1.5]
+  ppg_green:
+    window_s: 10.0
+    hop_ms: 100
+    list: [ppg_hr, ppg_pulse_amp, ppg_pulse_amp_var]
+    method: elgendi_via_neurokit2
+  temp:
+    rate_hz: 1
+    window_s: 60.0
+    hop_ms: 100
+    list: [temp_mean, temp_slope, temp_range]
+
+# -----------------------------------------------------------------------
+# Architectures
+# -----------------------------------------------------------------------
+encoder_output_dim: 128
+multitask_structure: hard_parameter_sharing      # Caruana 1997
+
+architectures_raw:
+  cnn1d:
+    blocks: "Conv-BN-ReLU-Pool"
+    kernels: [7, 5, 3]
+    pooling: adaptive_avg_pool
+    repr_dim: 128
+    dropout: 0.3
+  lstm:
+    n_layers: 2
+    hidden: 128
+    bidirectional_research: true
+    bidirectional_deploy:   false
+    pool: final_hidden
+    repr_dim: 128
+  cnn_lstm:
+    cnn_kernels: [5, 3]
+    cnn_channels: 6
+    lstm_hidden: 128
+    pool: mean_pool_over_time
+    bidirectional: true
+    repr_dim: 128
+  tcn:
+    n_blocks: 4
+    dilations: [1, 2, 4, 8]
+    channels:  [64, 64, 128, 128]
+    kernel_size: 5
+    dropout: 0.2
+    repr_dim: 128
+
+architectures_features:
+  mlp:
+    hidden_layers: 2
+    activation: relu
+    dropout_range: [0.1, 0.5]
+    repr_dim: 128
+  lstm:
+    n_layers: 2
+    pool: mean_pool_over_windows
+    repr_dim: 128
+
+# -----------------------------------------------------------------------
+# Loss
+# -----------------------------------------------------------------------
+multitask_loss:
+  type: learned_uncertainty_weighting
+  reference: "Kendall et al. 2018"
+  formula: "L = Σ_i (1 / 2σ_i²) L_i + log σ_i²"
+  per_task_log_variance_learnable: true
+  fixed_weights_used: false
+  manual_weights_fallback: {exercise: 1.0, phase: 1.0, fatigue: 1.0, reps: 0.5}
+
+per_task_loss:
+  exercise: cross_entropy
+  phase:    {hard: cross_entropy, soft: kl_divergence}
+  reps:     mse
+  fatigue:  mse
+
+# -----------------------------------------------------------------------
+# Training
+# -----------------------------------------------------------------------
+training:
+  optimizer: adamw                  # Loshchilov & Hutter 2019
+  lr_schedule: cosine_annealing     # Loshchilov & Hutter 2017
+  batch_size: 64
+  max_epochs: 50
+  early_stop_patience: 8
+  grad_clip_l2: 1.0
+  mixed_precision: true
+  uncertainty_weighting: true
+  monitored_metric: val_total_loss
+  random_seeds: [42, 1337, 7]
+
+hyperparameter_tuning:
+  framework: optuna
+  sampler: tpe
+  pruner: median_or_hyperband
+  n_trials_phase1_screening: 30
+  phase1_epochs: 30
+  phase2_retrain_epochs: 50
+  inner_cv_splits: 3
+  search_space:
+    lr:          {dist: loguniform, low: 1e-4, high: 5e-3}
+    weight_decay:{dist: loguniform, low: 1e-6, high: 1e-3}
+    batch_size:  {choice: [64, 128, 256]}
+    repr_dim:    {choice: [64, 128, 256]}
+    dropout:     {dist: uniform, low: 0.1, high: 0.5}
+    mlp_hidden:  {choice: [64, 128, 256]}
+    lstm_hidden: {choice: [32, 64, 128]}
+    lstm_layers: {choice: [1, 2]}
+    tcn_kernel:  {choice: [3, 5, 7]}
+  isolated_to_inner_training_set_only: true   # no leakage
+
+# -----------------------------------------------------------------------
+# Cross-validation
+# -----------------------------------------------------------------------
+cv:
+  primary_scheme: leave_one_subject_out
+  fallback_scheme_when_n_subj_gt_24: group_kfold_5
+  group_key: subject_name      # NOT recording_id (multi-session subjects)
+  reuse_baseline_splits_file: configs/splits.csv
+  reference: "Saeb et al. 2017"
+
+# -----------------------------------------------------------------------
+# Evaluation
+# -----------------------------------------------------------------------
+metrics:
+  exercise:
+    primary:   f1_macro
+    secondary: balanced_accuracy
+    diagnostic: confusion_matrix
+  phase:
+    primary:   f1_macro
+    secondary: balanced_accuracy
+    diagnostic: confusion_matrix
+  reps:
+    primary:   mae_count
+    secondary: [exact_match_pct, within_pm1_pct]
+    aggregation_required: "soft pred -> set count via rep_aggregation"
+  fatigue:
+    primary:   mae_rpe
+    secondary: pearson_r
+
+aggregation_across_folds_and_seeds: "mean ± std over (fold × seed)"
+
+# -----------------------------------------------------------------------
+# Deployment constraints
+# -----------------------------------------------------------------------
+deployment:
+  causal_only_architectures: [tcn, lstm_unidirectional, cnn1d_causal_padded]
+  excluded_from_deployment: [bilstm, non_causal_cnn_lstm]
+  latency_budget_p99_ms: 100
+  joint_data_used_at_inference: false
+  enforced_by_hooks:
+    - check-no-joint-in-streaming.sh
+    - check-no-filtfilt.sh
+
+# -----------------------------------------------------------------------
+# Hardware (training)
+# -----------------------------------------------------------------------
+hardware:
+  gpu: "NVIDIA RTX 5070 Ti"
+  cuda: "13.1 driver, torch 2.11.0+cu128 (Blackwell sm_120)"
+  cpu_fallback: silent_via_src_utils_device
+
+# -----------------------------------------------------------------------
+# Reproducibility
+# -----------------------------------------------------------------------
+reproducibility:
+  pinned_splits: configs/splits.csv
+  phase_whitelist: src/data/phase_whitelist.py
+  excluded_feature_prefixes: ["ecg_", "eda_"]   # src/data/datasets.py
+  raw_channels_constant: ["emg", "ppg_green", "acc_mag", "temp"]
+  parquet_per_recording: data/labeled/recording_NNN/aligned_features.parquet

@@ -3,16 +3,20 @@ Resample all biosignals and labels to a unified 100 Hz grid.
 
 Strategy
 --------
-1. The biosignal with the highest sample rate is 2000 Hz (EMG). We resample
-   everything to 100 Hz (the ACC/PPG native rate) to avoid large file sizes
-   while preserving all clinically relevant information (EMG features will be
-   extracted from the native 2000 Hz series by the feature extractor, but the
-   aligned parquet stores the downsampled version as a compact reference).
+1. The biosignal with the highest sample rate is 2000 Hz (EMG). The aligned
+   parquet stores all signals at 100 Hz so the raw NN dataset reads a single
+   coherent grid.
 
 2. Resampling method per signal type:
-   - Continuous biosignals (ECG, EMG, EDA, PPG-green): linear interpolation
-     onto the 100 Hz grid. This is acceptable for offline alignment; causal
-     feature extraction will operate on the raw files.
+   - EMG (2000 Hz native): bandpass 20-450 Hz + 50 Hz notch at native rate,
+     then RMS envelope (50 ms moving window), then linear interpolation onto
+     the 100 Hz grid. The RMS window doubles as the anti-aliasing filter for
+     the 20:1 decimation (Oppenheim & Schafer 2010). The envelope preserves
+     EMG amplitude information (Konrad 2005, Merletti & Parker 2004); spectral
+     fatigue indicators (MNF, MDF, Dimitrov FInsm5) are still computed from
+     the native 2000 Hz signal by src/features/emg_features.py for the
+     feature-based pipeline.
+   - ECG, EDA, PPG-green: linear interpolation onto the 100 Hz grid.
    - IMU (ax, ay, az, acc_mag): linear interpolation (already at 100 Hz —
      no-op in practice, just timestamp alignment).
    - Temperature: forward-fill (very slow signal, 1 Hz; step-interpolation
@@ -32,6 +36,14 @@ References
 - Forward-fill for temperature (1 Hz sensor) avoids introducing spurious
   sub-Hz variation: consistent with Maeda et al. (2011) recommendation
   for low-rate physiological signals.
+- RMS envelope as standard amplitude estimator for sEMG: Konrad (2005)
+  recommends a 50-100 ms RMS window; Merletti & Parker (2004, ch. 6)
+  describe smoothed-rectification amplitude estimation. The RMS window
+  also acts as the anti-aliasing low-pass before decimation (Oppenheim
+  & Schafer 2010, ch. 4.6).
+- De Luca (1997) — bandpass 20-450 Hz for surface EMG.
+- IEC 60601-2-40 / Merletti & Parker (2004) — 50 Hz notch for power-line
+  interference (Norway/EU mains frequency).
 """
 
 from __future__ import annotations
@@ -39,6 +51,18 @@ from __future__ import annotations
 from typing import Optional
 import numpy as np
 import pandas as pd
+from scipy.signal import butter, sosfiltfilt, iirnotch, filtfilt
+
+
+# ---------------------------------------------------------------------------
+# EMG envelope parameters
+# ---------------------------------------------------------------------------
+FS_EMG_NATIVE = 2000      # Hz — verified against metadata.json on every recording
+EMG_BAND_LOW_HZ = 20.0    # De Luca 1997
+EMG_BAND_HIGH_HZ = 450.0  # De Luca 1997
+EMG_NOTCH_HZ = 50.0       # Norway mains frequency
+EMG_NOTCH_Q = 30
+EMG_RMS_WINDOW_MS = 50.0  # Konrad 2005 — 50 ms gives ~20 Hz LP, safe for 100 Hz grid
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +129,89 @@ def _resample_nearest(
 
 
 # ---------------------------------------------------------------------------
+# EMG envelope (filter + RMS) — runs at native 2000 Hz before grid alignment
+# ---------------------------------------------------------------------------
+
+def _nanfill(signal: np.ndarray) -> np.ndarray:
+    """Forward + backward fill NaN values. Required before IIR filtering
+    because filtfilt/sosfiltfilt propagate NaN through the whole signal."""
+    out = signal.copy().astype(float)
+    mask = np.isnan(out)
+    if not mask.any():
+        return out
+    if mask.all():
+        return out
+    idx = np.arange(len(out))
+    fp = np.maximum.accumulate(np.where(~mask, idx, 0))
+    out[mask] = out[fp[mask]]
+    mask2 = np.isnan(out)
+    if mask2.any():
+        rev_idx = np.where(~mask2, idx, len(out) - 1)[::-1]
+        bp = np.minimum.accumulate(rev_idx)[::-1]
+        out[mask2] = out[bp[mask2]]
+    return out
+
+
+def emg_envelope(
+    signal: np.ndarray,
+    fs: int = FS_EMG_NATIVE,
+    band_hz: tuple[float, float] = (EMG_BAND_LOW_HZ, EMG_BAND_HIGH_HZ),
+    notch_hz: float = EMG_NOTCH_HZ,
+    notch_q: float = EMG_NOTCH_Q,
+    rms_window_ms: float = EMG_RMS_WINDOW_MS,
+) -> np.ndarray:
+    """Bandpass + notch + RMS-envelope at native rate.
+
+    Pipeline (offline, zero-phase):
+        nan-fill → Butterworth bandpass 20-450 Hz (sosfiltfilt)
+        → IIR notch 50 Hz (filtfilt) → squared signal
+        → centered moving-average over `rms_window_ms` → sqrt → envelope.
+
+    The RMS window is the anti-aliasing low-pass before decimation: a 50 ms
+    boxcar has its first zero at 20 Hz, so frequencies above ~20 Hz in the
+    squared signal are attenuated below the 50 Hz Nyquist of the 100 Hz grid
+    (Oppenheim & Schafer 2010; Konrad 2005).
+
+    Parameters
+    ----------
+    signal       : 1D raw EMG samples at native fs.
+    fs           : Native sample rate (Hz).
+    band_hz      : Bandpass cutoffs (low, high).
+    notch_hz     : Power-line notch frequency.
+    notch_q      : Notch quality factor.
+    rms_window_ms: RMS smoothing window in milliseconds.
+
+    Returns
+    -------
+    Envelope at the same length and rate as the input.
+    """
+    if len(signal) == 0:
+        return signal.astype(float).copy()
+
+    x = _nanfill(signal)
+
+    sos = butter(4, list(band_hz), btype="band", fs=fs, output="sos")
+    x = sosfiltfilt(sos, x)
+
+    b_notch, a_notch = iirnotch(notch_hz, Q=notch_q, fs=fs)
+    x = filtfilt(b_notch, a_notch, x)
+
+    win_samp = max(1, int(round(rms_window_ms * fs / 1000.0)))
+    if win_samp > 1:
+        kernel = np.ones(win_samp, dtype=float) / win_samp
+        x = np.convolve(x ** 2, kernel, mode="same")
+        x = np.sqrt(np.maximum(x, 0.0))
+    else:
+        x = np.abs(x)
+
+    nan_mask = np.isnan(signal)
+    if nan_mask.any():
+        x = x.astype(float)
+        x[nan_mask] = np.nan
+    return x
+
+
+# ---------------------------------------------------------------------------
 # Main alignment function
 # ---------------------------------------------------------------------------
 
@@ -157,17 +264,27 @@ def build_aligned_dataframe(
     df["t_session_s"] = grid_t - bio_t0
 
     # -----------------------------------------------------------------------
-    # Biosignals — linear interpolation
+    # Biosignals — linear interpolation (ECG, EDA, PPG-green)
     # -----------------------------------------------------------------------
     for src_df, col in [
         (ecg_df, "ecg"),
-        (emg_df, "emg"),
         (eda_df, "eda"),
         (ppg_green_df, "ppg_green"),
     ]:
         t = src_df["timestamp"].to_numpy(dtype=float)
         v = src_df[col].to_numpy(dtype=float)
         df[col] = _resample_linear(t, v, grid_t)
+
+    # EMG — bandpass + notch + RMS envelope at native 2000 Hz, then resample
+    # the envelope to the 100 Hz grid. The RMS window is the anti-aliasing
+    # low-pass for the 20:1 decimation, so the raw NN models read a clean
+    # amplitude representation instead of an aliased version of the raw
+    # 2000 Hz signal. Spectral fatigue features (MNF/MDF/Dimitrov) are still
+    # computed on the native 2000 Hz CSV by src/features/emg_features.py.
+    emg_t = emg_df["timestamp"].to_numpy(dtype=float)
+    emg_v = emg_df["emg"].to_numpy(dtype=float)
+    emg_env = emg_envelope(emg_v, fs=FS_EMG_NATIVE)
+    df["emg"] = _resample_linear(emg_t, emg_env, grid_t)
 
     # IMU
     for col in ["ax", "ay", "az", "acc_mag"]:
@@ -364,6 +481,14 @@ def build_set_info_array(
         if len(indices) == 0:
             continue
 
+        # Sets where markers say 0 reps are almost always wrong recordings
+        # (aborted attempts, button never pressed, mis-numbered sets). Mark
+        # them inactive so they neither train nor evaluate any task. The
+        # qc_report still shows the set boundaries from kinect_sets so the
+        # exclusion is visible.
+        if sm.n_reps == 0:
+            continue
+
         in_active[indices] = True
         set_number[indices] = pos_idx + 1   # canonical 1-based index
         exercise_arr[indices] = exer if exer else "unknown"
@@ -382,41 +507,52 @@ def build_set_info_array(
             else:
                 set_phase_arr[gi] = "end"
 
-        # Rep count: prefer joint-angle timing (precise per-rep extrema)
-        # over marker timing (manual button-presses, count-accurate but
-        # timing-imprecise). count_reps_from_angles in run.py was called
-        # with target_n_reps=sm.n_reps so when joint data is usable, the
-        # max of jdf['rep_count_in_set'] equals sm.n_reps. When the joint
-        # detector returns all-zeros (signal poverty / Kinect tracking
-        # failed / acc-fallback case), max is 0 and we fall back to
-        # markers, then to acc-based phase if even markers are missing.
+        # Rep timing: prefer joint-angle extrema (precise per-rep peak/valley
+        # times) over marker button-presses (count-accurate but ±0.5-1s timing
+        # imprecise). The joint detector is called with target_n_reps=sm.n_reps
+        # in run.py, so when it succeeds it returns EXACTLY sm.n_reps reps
+        # anchored at the actual extrema. We use those times for both
+        # rep_count_in_set transitions and rep_density_hz boundaries.
+        #
+        # Fallback to marker times only when joint detection failed
+        # (NaN frames > 50%, no extrema found, or returned-count != sm.n_reps).
+        # The marker fallback preserves the exact rep count but with looser
+        # timing (still acceptable for soft_window rep targets, but biases
+        # phase boundaries by ~0.5-1s).
         jdf = joint_angle_dfs.get(sm.set_num)
-        joint_max = 0
+        joint_count = 0
         if jdf is not None and len(jdf) > 0 and "rep_count_in_set" in jdf.columns:
             jr_full = jdf["rep_count_in_set"].to_numpy(dtype=float)
             if len(jr_full) > 0 and np.isfinite(jr_full).any():
-                joint_max = int(np.nanmax(jr_full))
+                joint_count = int(np.nanmax(jr_full))
 
-        if joint_max > 0:
-            # Joint-angle primary: rep timing follows the actual movement
+        if joint_count == sm.n_reps:
+            # Joint detector produced the correct count → use its extrema
+            # times for rep boundaries (precise timing).
             jt = jdf["t_unix"].to_numpy(dtype=float)
             jr = jdf["rep_count_in_set"].to_numpy(dtype=float)
             resampled = _resample_nearest(jt, jr, grid_t[indices])
             rep_count_arr[indices] = resampled
-            rep_index_arr[indices] = np.where(resampled > 0, resampled, np.nan)
+            rep_index_arr[indices] = np.where(resampled > 0,
+                                                resampled, np.nan)
             rep_boundaries = _rep_boundaries_from_joint(jdf)
             _fill_rep_density_hz(grid_t, indices, sm.start_unix,
                                   rep_boundaries, rep_density_arr)
-        elif sm.rep_markers:
-            # Marker fallback: manual rep timing (precise count, ±1s timing)
-            rep_times = sorted([r.unix_time for r in sm.rep_markers])
+        else:
+            # Joint detection failed or returned wrong count → fall back to
+            # marker times. Count is preserved (markers is truth); timing
+            # may be ±0.5-1 s off the actual extrema.
+            if sm.rep_markers:
+                rep_times = sorted([r.unix_time for r in sm.rep_markers])
+            else:
+                step = (sm.end_unix - sm.start_unix) / sm.n_reps
+                rep_times = [sm.start_unix + (k + 1) * step
+                              for k in range(sm.n_reps)]
             for gi in indices:
                 t = grid_t[gi]
                 passed = sum(1 for rt in rep_times if t >= rt)
                 rep_count_arr[gi] = passed
-                rep_idx_val = passed
-                rep_index_arr[gi] = rep_idx_val if rep_idx_val > 0 else np.nan
-            # marker_position='end' convention: boundary k = marker k unix_time
+                rep_index_arr[gi] = passed if passed > 0 else np.nan
             _fill_rep_density_hz(grid_t, indices, sm.start_unix,
                                   rep_times, rep_density_arr)
 
