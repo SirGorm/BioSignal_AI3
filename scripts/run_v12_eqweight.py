@@ -47,7 +47,8 @@ def step_done(run_dir: Path) -> bool:
            next(iter((run_dir / "phase2").rglob("cv_summary.json")), None) is not None
 
 
-def make_jobs(n_trials, p1_epochs, p2_epochs, patience, tag):
+def make_jobs(n_trials, p1_epochs, p2_epochs, patience, tag,
+              arch_filter=None, window_filter=None):
     seeds = [42, 1337, 7]
     common = [
         "--n-trials", str(n_trials),
@@ -64,9 +65,12 @@ def make_jobs(n_trials, p1_epochs, p2_epochs, patience, tag):
     archs = [(s, a, v, ['exercise','phase','fatigue','reps'])
              for s, a, v in MULTI_ARCHS]
     archs += [(s, a, v, ['fatigue']) for s, a, v in FATIGUE_ARCHS]
+    if arch_filter:
+        archs = [t for t in archs if t[0] in arch_filter]
+    windows = WINDOWS if window_filter is None else window_filter
 
     jobs = []
-    for w in WINDOWS:
+    for w in windows:
         wl = _wlabel(w)
         for slug, arch, variant, tasks in archs:
             run_dir = ROOT / "runs" / f"optuna_clean_{tag}-w{wl}-{slug}"
@@ -90,6 +94,12 @@ def main():
     ap.add_argument("--patience", type=int, default=20)
     ap.add_argument("--max-gpu-jobs", type=int, default=4)
     ap.add_argument("--tag", default="v12eqw")
+    ap.add_argument("--archs", nargs="*", default=None,
+                    help="Restrict to these arch slugs (e.g. multi-raw-tcn). "
+                         "Default: all 8 archs.")
+    ap.add_argument("--windows", nargs="*", type=float, default=None,
+                    help="Restrict to these window lengths in seconds "
+                         "(e.g. 1 2 5). Default: 1 2 5.")
     args = ap.parse_args()
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -98,7 +108,8 @@ def main():
     status_path = log_dir / "status.json"
 
     jobs = make_jobs(args.n_trials, args.phase1_epochs, args.phase2_epochs,
-                      args.patience, args.tag)
+                      args.patience, args.tag,
+                      arch_filter=args.archs, window_filter=args.windows)
     pending = []
     skipped = []
     for j in jobs:
