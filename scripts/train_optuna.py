@@ -235,6 +235,15 @@ def main():
                         '(e.g. emg_ acc_ ppg_ temp_). Default: all.')
     p.add_argument('--no-uncertainty', action='store_true',
                    help='Disable uncertainty weighting (default: ON)')
+    p.add_argument('--norm-mode',
+                   choices=['baseline', 'robust', 'percentile'],
+                   default='baseline',
+                   help='Per-recording normalization for the raw path. '
+                        '"baseline" = mean/std on first 90s rest (legacy); '
+                        '"robust" = median+MAD on full recording (handles '
+                        'heavy-lift outliers); "percentile" = mean ± 99th '
+                        'percentile of |x-mean| (equalizes max activation '
+                        'across subjects, addresses exercise overfitting).')
     p.add_argument('--skip-phase2', action='store_true')
     p.add_argument('--labeled-root', type=Path, default=Path('data/labeled'))
     p.add_argument('--runs-root', type=Path, default=Path('runs'))
@@ -282,7 +291,8 @@ def main():
         dataset = RawMultimodalWindowDataset(parquet_paths=files, active_only=True,
                                                phase_whitelist=phase_wl,
                                                target_modes=target_modes,
-                                               window_s=args.window_s)
+                                               window_s=args.window_s,
+                                               norm_mode=args.norm_mode)
     print(f"[optuna] window_s={args.window_s}  target_modes={target_modes}  "
           f"enabled_tasks={args.tasks}")
     print(f"[optuna] {args.variant} dataset: {len(dataset)} windows")

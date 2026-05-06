@@ -54,6 +54,17 @@ FS_LABELED_GRID = 100  # parquet grid is at 100 Hz (set in src/labeling/align.py
 BASELINE_SAMPLES = 9000  # 90 s at 100 Hz — independent of window
 CLIP_SIGMA = 5.0
 
+# Per-recording normalization modes — see _compute_baseline_stats. Selected
+# at construction time via `norm_mode=`.
+#   "baseline" (default): mean / std on first 90 s rest. Backward-compat.
+#   "robust"  : median / (MAD × 1.4826) on full recording. Robust to occasional
+#               heavy-set outliers; addresses exercise overfitting where the
+#               subject's max activation dominates standard z-score.
+#   "percentile": (x − baseline_mean) / 99th-percentile-of-|x − baseline_mean|.
+#                 Equalizes "max activation" scale across subjects so subjects
+#                 with different lift weights map to the same dynamic range.
+VALID_NORM_MODES = ("baseline", "robust", "percentile")
+
 # Backward-compat module constants for callers that don't override.
 WINDOW_SIZE = int(DEFAULT_WINDOW_S * FS_LABELED_GRID)
 WINDOW_DUR_S = DEFAULT_WINDOW_S
@@ -91,7 +102,11 @@ class RawMultimodalWindowDataset(Dataset):
         window_s: float = DEFAULT_WINDOW_S,
         hop_s: Optional[float] = None,
         channels: Optional[List[str]] = None,
+        norm_mode: str = "baseline",
     ):
+        if norm_mode not in VALID_NORM_MODES:
+            raise ValueError(f"norm_mode={norm_mode!r} not in {VALID_NORM_MODES}")
+        self.norm_mode = norm_mode
         self.parquet_paths = [Path(p) for p in parquet_paths]
         self.active_only = active_only
         self.verbose = verbose
@@ -227,28 +242,60 @@ class RawMultimodalWindowDataset(Dataset):
         self.gpu_resident: bool = False
 
     def _compute_baseline_stats(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
-        """Compute per-channel mean/std from first 90 s (baseline period).
+        """Compute per-channel (center, scale) for z-score normalization.
 
-        Falls back to full-recording stats for channels that are all-NaN in
-        the baseline period (e.g., temperature in some recordings).
+        The output is always (center, scale) so the per-window code path is
+        a single (window − center) / scale regardless of norm_mode. The mode
+        only changes how center/scale are derived:
+
+        - "baseline" : center=mean(first 90 s), scale=std(first 90 s).
+                       Backward-compatible default.
+        - "robust"   : center=median(full recording),
+                       scale=MAD(full recording) × 1.4826.
+                       Robust to heavy-lift outliers; recommended when one
+                       subject dominates std due to a single high-amplitude
+                       set (Huber 1981; Rousseeuw & Croux 1993).
+        - "percentile": center=mean(first 90 s),
+                        scale=99th-percentile(|x − center|) over full recording.
+                        Equalizes "max activation" scale across subjects of
+                        different absolute strength.
+
+        Sparse-channel fallback (e.g., temp): if the chosen window has < 10
+        valid samples, fall back to the full-recording equivalent.
         """
         chans = self.channels
         baseline = df.iloc[:BASELINE_SAMPLES][chans].to_numpy(dtype=np.float32)
         full = df[chans].to_numpy(dtype=np.float32)
-        mean = np.full(len(chans), 0.0, dtype=np.float32)
-        std = np.full(len(chans), 1.0, dtype=np.float32)
+        center = np.full(len(chans), 0.0, dtype=np.float32)
+        scale = np.full(len(chans), 1.0, dtype=np.float32)
+
         for i in range(len(chans)):
-            col_baseline = baseline[:, i]
-            valid = col_baseline[~np.isnan(col_baseline)]
-            if len(valid) < 10:
-                # Fall back to full recording for sparse channels (e.g., temp)
-                col_full = full[:, i]
-                valid = col_full[~np.isnan(col_full)]
-            if len(valid) > 0:
-                mean[i] = float(np.nanmean(valid))
-                std[i] = max(float(np.nanstd(valid)), 1e-8)
-            # else: keep 0/1 defaults (zero-mean unit-std pass-through)
-        return mean, std
+            col_base = baseline[:, i]
+            col_full = full[:, i]
+            base_valid = col_base[~np.isnan(col_base)]
+            full_valid = col_full[~np.isnan(col_full)]
+            if len(full_valid) == 0:
+                continue  # keep 0/1 defaults
+
+            if self.norm_mode == "baseline":
+                use = base_valid if len(base_valid) >= 10 else full_valid
+                center[i] = float(np.mean(use))
+                scale[i] = max(float(np.std(use)), 1e-8)
+
+            elif self.norm_mode == "robust":
+                med = float(np.median(full_valid))
+                mad = float(np.median(np.abs(full_valid - med)))
+                center[i] = med
+                # MAD × 1.4826 ≈ std for normally-distributed data
+                scale[i] = max(mad * 1.4826, 1e-8)
+
+            elif self.norm_mode == "percentile":
+                base_ref = base_valid if len(base_valid) >= 10 else full_valid
+                center[i] = float(np.mean(base_ref))
+                p99 = float(np.percentile(np.abs(full_valid - center[i]), 99.0))
+                scale[i] = max(p99, 1e-8)
+
+        return center, scale
 
     def __len__(self) -> int:
         return len(self._window_idx)

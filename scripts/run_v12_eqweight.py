@@ -48,7 +48,7 @@ def step_done(run_dir: Path) -> bool:
 
 
 def make_jobs(n_trials, p1_epochs, p2_epochs, patience, tag,
-              arch_filter=None, window_filter=None):
+              arch_filter=None, window_filter=None, norm_mode="baseline"):
     seeds = [42, 1337, 7]
     common = [
         "--n-trials", str(n_trials),
@@ -60,6 +60,7 @@ def make_jobs(n_trials, p1_epochs, p2_epochs, patience, tag,
         "--labeled-root", str(LABELED_ROOT),
         "--splits", str(SPLITS),
         "--reps-mode", "soft_overlap",
+        "--norm-mode", norm_mode,
         "--num-workers", "0",
     ]
     archs = [(s, a, v, ['exercise','phase','fatigue','reps'])
@@ -100,6 +101,12 @@ def main():
     ap.add_argument("--windows", nargs="*", type=float, default=None,
                     help="Restrict to these window lengths in seconds "
                          "(e.g. 1 2 5). Default: 1 2 5.")
+    ap.add_argument("--norm-mode",
+                    choices=['baseline', 'robust', 'percentile'],
+                    default='baseline',
+                    help="Per-recording raw normalization mode (passed to "
+                         "train_optuna.py). 'robust' or 'percentile' may "
+                         "reduce subject-shortcut overfitting on exercise.")
     args = ap.parse_args()
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -109,7 +116,8 @@ def main():
 
     jobs = make_jobs(args.n_trials, args.phase1_epochs, args.phase2_epochs,
                       args.patience, args.tag,
-                      arch_filter=args.archs, window_filter=args.windows)
+                      arch_filter=args.archs, window_filter=args.windows,
+                      norm_mode=args.norm_mode)
     pending = []
     skipped = []
     for j in jobs:
