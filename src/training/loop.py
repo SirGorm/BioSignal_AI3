@@ -14,6 +14,12 @@ from torch.amp import autocast, GradScaler
 from src.training.losses import MultiTaskLoss
 from src.eval.metrics import compute_all_metrics
 
+try:
+    from torch.utils.tensorboard import SummaryWriter
+    _TB_AVAILABLE = True
+except ImportError:
+    _TB_AVAILABLE = False
+
 # GPU speedups: cuDNN auto-tuner picks the fastest convolution algorithm for
 # the input shapes (one-time cost amortized across epochs); TF32 enables
 # fast matmul on Ampere+ (RTX 30/40/50). Both produce small numerical drift
@@ -256,6 +262,13 @@ def train_one_fold(
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.epochs)
     scaler = GradScaler(enabled=cfg.mixed_precision)
 
+    # TensorBoard writer — one logdir per (seed, fold) so the UI shows each
+    # fold as a separate "run". Launch with:
+    #   tensorboard --logdir runs/<run-dir>
+    # and TB discovers all seeds × folds × archs under it.
+    tb_writer = SummaryWriter(log_dir=str(out_dir / "tb"),
+                              flush_secs=10) if _TB_AVAILABLE else None
+
     best_val = float('inf')
     best_state = None
     patience = 0
@@ -270,6 +283,19 @@ def train_one_fold(
         sched.step()
         history.append({'epoch': epoch, 'train': train_losses,
                          'val_loss': val_losses, 'val_metrics': val_metrics})
+        if tb_writer is not None:
+            for k, v in train_losses.items():
+                tb_writer.add_scalar(f"loss/train/{k}", v, epoch)
+            for k, v in val_losses.items():
+                tb_writer.add_scalar(f"loss/val/{k}", v, epoch)
+            for task in ('exercise', 'phase', 'fatigue', 'reps'):
+                for metric, val in val_metrics.get(task, {}).items():
+                    if val is None or (isinstance(val, float) and np.isnan(val)):
+                        continue
+                    tb_writer.add_scalar(f"metrics/{task}/{metric}",
+                                         float(val), epoch)
+            tb_writer.add_scalar("lr", opt.param_groups[0]["lr"], epoch)
+            tb_writer.flush()
         print(f"  Epoch {epoch:3d}  train_total={train_losses['total']:.4f}  "
               f"val_total={val_losses['total']:.4f}  "
               f"ex_F1={val_metrics['exercise']['f1_macro']:.3f}  "
@@ -286,6 +312,9 @@ def train_one_fold(
             if patience >= cfg.patience:
                 print(f"  Early stop at epoch {epoch}")
                 break
+
+    if tb_writer is not None:
+        tb_writer.close()
 
     # Restore best and evaluate final
     model.load_state_dict(best_state)
