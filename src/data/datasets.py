@@ -49,7 +49,7 @@ VALID_REPS_MODES = ('hard', 'soft_window', 'soft_overlap')
 SOFT_OVERLAP_COL = 'soft_overlap_reps'
 HAS_REP_INTERVALS_COL = 'has_rep_intervals'
 VALID_PHASE_MODES = ('hard', 'soft')
-DEFAULT_TARGET_MODES = {'reps': 'hard', 'phase': 'hard'}
+DEFAULT_TARGET_MODES = {'reps': 'hard', 'phase': 'soft'}
 
 
 def _is_nan(v):
@@ -106,8 +106,14 @@ class WindowFeatureDataset(Dataset):
         phase_whitelist: Optional[Set[Tuple[str, int]]] = None,
         target_modes: Optional[Dict[str, str]] = None,
         verbose: bool = True,
-        stride: int = 100,
+        stride: Optional[int] = None,
+        window_s: float = 2.0,
     ):
+        # If stride not given, default to window_s/2 × 100 Hz (50 % overlap on
+        # the 100 Hz feature grid). Matches raw NN windowing for fairness.
+        if stride is None:
+            stride = max(1, int(round(window_s / 2 * 100)))
+        self.window_s = float(window_s)
         # Resolve target modes (defaults preserve hard-label legacy pipeline).
         modes = dict(DEFAULT_TARGET_MODES)
         if target_modes:
@@ -191,11 +197,53 @@ class WindowFeatureDataset(Dataset):
                                or LabelEncoder().fit(df['phase_label']))
 
         x_arr = df[feature_cols].to_numpy(dtype=np.float32)
+
+        # Per-recording z-score using the first 90 s baseline period.
+        # Removes subject-specific absolute-amplitude bias so the model can't
+        # use "this is Hytten's baseline emg_rms" as an exercise-classification
+        # shortcut. Mirrors the baseline rule already applied on the raw path
+        # (src/data/raw_window_dataset.py). Falls back to full-recording stats
+        # per feature when the baseline slice is too sparse (e.g., temp).
+        BASELINE_S = 90.0
+        rec_ids = df['recording_id'].to_numpy()
+        t_sess = df['t_session_s'].to_numpy()
+        n_feat = x_arr.shape[1]
+        for rec in np.unique(rec_ids):
+            rec_mask = rec_ids == rec
+            base_mask = rec_mask & (t_sess < BASELINE_S)
+            base_rows = x_arr[base_mask]
+            full_rows = x_arr[rec_mask]
+            mean = np.zeros(n_feat, dtype=np.float32)
+            std = np.ones(n_feat, dtype=np.float32)
+            for j in range(n_feat):
+                col_base = base_rows[:, j]
+                valid = col_base[~np.isnan(col_base)]
+                if len(valid) >= 100:
+                    mean[j] = float(np.mean(valid))
+                    s = float(np.std(valid))
+                else:
+                    col_full = full_rows[:, j]
+                    valid_full = col_full[~np.isnan(col_full)]
+                    if len(valid_full) >= 100:
+                        mean[j] = float(np.mean(valid_full))
+                        s = float(np.std(valid_full))
+                    else:
+                        s = 1.0
+                std[j] = s if s > 1e-8 else 1.0
+            x_arr[rec_mask] = (x_arr[rec_mask] - mean) / std
+        # Bursty features (EMG amplitude under heavy sets) can yield large
+        # post-normalization values when the baseline std is small. Clip so
+        # the NN never sees > 8 sigma outliers.
+        x_arr = np.clip(x_arr, -8.0, 8.0)
+
         n_nan = int(np.isnan(x_arr).sum())
         if n_nan > 0 and verbose:
             print(f"[dataset] {n_nan} NaN values in features "
                   f"({n_nan/x_arr.size:.2%}); replacing with 0.")
         x_arr = np.nan_to_num(x_arr, nan=0.0, posinf=0.0, neginf=0.0)
+        if verbose:
+            print(f"[dataset] per-recording baseline z-score normalized "
+                  f"({len(np.unique(rec_ids))} recordings, baseline={BASELINE_S}s)")
         self.X = torch.from_numpy(x_arr)
 
         ex_idx = self.exercise_encoder.transform(df['exercise'])
@@ -251,13 +299,18 @@ class WindowFeatureDataset(Dataset):
 
         # ---- reps target: hard | soft_window | soft_overlap -----------------
         if self.target_modes['reps'] == 'soft_overlap':
-            if SOFT_OVERLAP_COL not in df.columns:
+            # Pick window-specific column; 2 s alias = legacy SOFT_OVERLAP_COL.
+            col = (f'soft_overlap_reps_{self.window_s:g}s'
+                   .replace('.', '_'))
+            if col not in df.columns:
+                col = SOFT_OVERLAP_COL  # legacy 2 s
+            if col not in df.columns:
                 raise KeyError(
                     f"target_modes['reps']='soft_overlap' requires column "
-                    f"{SOFT_OVERLAP_COL!r} in window_features.parquet. "
-                    "Run scripts/add_soft_overlap_reps.py first."
+                    f"{col!r} in window_features.parquet. "
+                    "Run scripts/add_soft_overlap_reps.py --window-s {self.window_s}."
                 )
-            reps = df[SOFT_OVERLAP_COL].to_numpy(dtype=np.float32)
+            reps = df[col].to_numpy(dtype=np.float32)
             in_act = (df['in_active_set'].astype(bool).to_numpy()
                       if 'in_active_set' in df.columns
                       else ~np.isnan(reps))
@@ -282,7 +335,14 @@ class WindowFeatureDataset(Dataset):
             self.m_reps = torch.from_numpy(~np.isnan(reps))
         self.t_reps = torch.from_numpy(np.nan_to_num(reps, nan=0.0))
 
-        self.m_fatigue = torch.from_numpy(~np.isnan(rpe))
+        # Fatigue is supervised only on active-set windows. Rest windows still
+        # get a forward-pass prediction (model(x) is unconditional), but they
+        # do not contribute to the loss → no gradient flow from rest periods.
+        # Symmetric with the reps mask above.
+        in_act_fat = (df['in_active_set'].astype(bool).to_numpy()
+                      if 'in_active_set' in df.columns
+                      else np.ones(len(df), dtype=bool))
+        self.m_fatigue = torch.from_numpy((~np.isnan(rpe)) & in_act_fat)
         self.t_fatigue = torch.from_numpy(np.nan_to_num(rpe, nan=0.0))
 
         self.subject_ids: List[str] = df['subject_id'].astype(str).tolist()

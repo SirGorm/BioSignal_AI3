@@ -1,28 +1,20 @@
-"""V5 orchestrator: multi-task with soft_overlap+LOSO + fatigue-only specialised runs.
+"""Window-size sweep orchestrator.
 
-Two parallel tracks:
+Trains the same set of architectures at 4 window sizes (1, 2, 2.5, 4 s) so
+we can compare which window length is best for each task. All other settings
+(LOSO splits, soft_overlap reps, EMG RMS envelope, uncertainty weighting) are
+held fixed.
 
-  TRACK A (multi-task) — 6 NN + RF, all 4 tasks active.
-    --reps-mode soft_overlap   (Wang et al. 2026 overlap-fraction labels)
-    --splits configs/splits_clean_loso.csv  (7-fold LOSO)
-    --tasks exercise phase fatigue reps
-    Output: runs/optuna_clean_{TAG}-{features-{mlp,lstm}, raw-{cnn1d,lstm,cnn_lstm,tcn}_raw}/
+Run dirs are tagged `optuna_clean_{TAG}-w{WIN}-{ARCH}` where WIN encodes the
+window size, e.g. `w1s`, `w2s`, `w2_5s`, `w4s`.
 
-  TRACK B (fatigue-only) — 4 best fatigue archs from v4-resume.
-    Top picks (Pearson r in v4-resume):
-      raw-cnn_lstm  +0.28
-      raw-cnn1d     +0.17
-      raw-tcn       +0.18
-      feat-MLP      +0.15
-    Same data + LOSO + soft_overlap, but only fatigue contributes to the loss.
-    Output: runs/optuna_clean_{TAG}-fatigue-{arch}/
+Per-arch budget defaults (sweep, not deep search):
+  - n_trials: 50 (vs 200-400 in v7/v8)
+  - phase1_epochs: 30
+  - phase2_epochs: 150 (vs 300 in v7/v8)
+  - patience: 10
 
-  + RF on CPU (re-run for v5 baseline consistency).
-
-Total: 6 + 4 + 1 = 11 jobs.
-Parallelism: 4 GPU + 1 CPU.
-Per-arch ETA: 25-50 min (matches v4-resume budget).
-Total ETA: ~3-5 hours.
+Total jobs: len(WINDOWS) × len(ARCHS) NN + RF (RF is window-independent).
 """
 from __future__ import annotations
 
@@ -42,12 +34,26 @@ SPLITS_LOSO = ROOT / "configs" / "splits_clean_loso.csv"
 EXCLUDE = ["recording_004", "recording_005", "recording_007",
            "recording_008", "recording_009"]
 
-# Fatigue-only architectures for v7: TCN + LSTM raw (per user 2026-05-02).
-# Both are causal and deployable in streaming.
-FATIGUE_TOP_ARCHS = [
+# Architectures (kept in v7 layout: 6 multi-task + 2 fatigue-only)
+MULTI_ARCHS = [
+    ("multi-feat-mlp",      "mlp",          "features"),
+    ("multi-feat-lstm",     "lstm",         "features"),
+    ("multi-raw-cnn1d",     "cnn1d_raw",    "raw"),
+    ("multi-raw-lstm",      "lstm_raw",     "raw"),
+    ("multi-raw-cnn_lstm",  "cnn_lstm_raw", "raw"),
+    ("multi-raw-tcn",       "tcn_raw",      "raw"),
+]
+FATIGUE_ARCHS = [
     ("fatigue-raw-tcn",  "tcn_raw",  "raw"),
     ("fatigue-raw-lstm", "lstm_raw", "raw"),
 ]
+
+WINDOWS = [1.0, 2.0, 2.5, 4.0]
+
+
+def _wlabel(window_s: float) -> str:
+    """Encode window length for directory name: 2.0 → 2s, 2.5 → 2_5s."""
+    return f"{window_s:g}s".replace('.', '_')
 
 
 def step_done(run_dir: Path) -> bool:
@@ -60,10 +66,19 @@ def step_done_rf(run_dir: Path) -> bool:
 
 
 def make_steps(n_trials: int, phase1_epochs: int, phase2_epochs: int,
-               patience: int, tag: str = "v5") -> list[dict]:
-    TAG = tag
+               patience: int, tag: str, windows: list, archs_filter: str
+               ) -> list[dict]:
     seeds = [42, 1337, 7]
-    common_optuna = [
+    steps = []
+
+    archs = []
+    if archs_filter in ('all', 'multi'):
+        archs += [(s, a, v, ['exercise', 'phase', 'fatigue', 'reps'])
+                  for s, a, v in MULTI_ARCHS]
+    if archs_filter in ('all', 'fatigue'):
+        archs += [(s, a, v, ['fatigue']) for s, a, v in FATIGUE_ARCHS]
+
+    common = [
         "--n-trials", str(n_trials),
         "--phase1-epochs", str(phase1_epochs),
         "--phase2-epochs", str(phase2_epochs),
@@ -76,48 +91,32 @@ def make_steps(n_trials: int, phase1_epochs: int, phase2_epochs: int,
         "--num-workers", "0",
     ]
 
-    def opt_step(slug, arch, variant, run_dir_name, tasks):
-        run_dir = RUN_DIR_BASE / run_dir_name
-        cmd = [sys.executable, "scripts/train_optuna.py",
-               "--arch", arch, "--variant", variant,
-               "--run-dir", str(run_dir),
-               "--tasks", *tasks,
-               *common_optuna]
-        return {"slug": slug, "kind": "nn", "cmd": cmd, "run_dir": run_dir,
-                "device": "gpu", "is_done": step_done}
+    # NN steps for each (window, arch) combo
+    for window_s in windows:
+        wl = _wlabel(window_s)
+        for slug, arch, variant, tasks in archs:
+            run_dir_name = f"optuna_clean_{tag}-w{wl}-{slug}"
+            run_dir = RUN_DIR_BASE / run_dir_name
+            cmd = [sys.executable, "scripts/train_optuna.py",
+                   "--arch", arch, "--variant", variant,
+                   "--run-dir", str(run_dir),
+                   "--tasks", *tasks,
+                   "--window-s", str(window_s),
+                   *common]
+            steps.append({"slug": f"w{wl}-{slug}", "kind": "nn", "cmd": cmd,
+                          "run_dir": run_dir, "device": "gpu",
+                          "is_done": step_done})
 
-    steps = []
-    # TRACK A — multi-task with all 4 tasks
-    multi_archs = [
-        ("multi-feat-mlp",      "mlp",          "features"),
-        ("multi-feat-lstm",     "lstm",         "features"),
-        ("multi-raw-cnn1d",     "cnn1d_raw",    "raw"),
-        ("multi-raw-lstm",      "lstm_raw",     "raw"),
-        ("multi-raw-cnn_lstm",  "cnn_lstm_raw", "raw"),
-        ("multi-raw-tcn",       "tcn_raw",      "raw"),
-    ]
-    for slug, arch, variant in multi_archs:
-        # multi-task run-dir (e.g. optuna_clean_{TAG}-features-mlp)
-        rd_name = f"optuna_clean_{TAG}-{variant}-{arch}"
-        steps.append(opt_step(slug, arch, variant, rd_name,
-                                tasks=["exercise", "phase", "fatigue", "reps"]))
-
-    # TRACK B — fatigue-only specialised
-    for slug, arch, variant in FATIGUE_TOP_ARCHS:
-        rd_name = f"optuna_clean_{TAG}-{slug}"
-        steps.append(opt_step(slug, arch, variant, rd_name,
-                                tasks=["fatigue"]))
-
-    # RF on CPU
-    rf_run_dir = RUN_DIR_BASE / f"optuna_clean_{TAG}-rf"
-    rf_run_dir.mkdir(parents=True, exist_ok=True)
+    # RF on CPU — window-independent (uses set_features.parquet for fatigue/reps)
+    rf_dir = RUN_DIR_BASE / f"optuna_clean_{tag}-rf"
+    rf_dir.mkdir(parents=True, exist_ok=True)
     rf_cmd = [sys.executable, "scripts/train_lgbm.py",
-              "--run-dir", str(rf_run_dir),
+              "--run-dir", str(rf_dir),
               "--features-dir", str(RF_FEATURES_DIR),
               "--exclude-recordings", *EXCLUDE,
               "--splits", str(SPLITS_LOSO)]
     steps.append({"slug": "rf-cpu", "kind": "rf", "cmd": rf_cmd,
-                  "run_dir": rf_run_dir, "device": "cpu",
+                  "run_dir": rf_dir, "device": "cpu",
                   "is_done": step_done_rf})
 
     return steps
@@ -138,13 +137,17 @@ def launch(step: dict, log_dir: Path) -> dict:
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
-    ap.add_argument("--n-trials", type=int, default=100)
-    ap.add_argument("--phase1-epochs", type=int, default=50)
-    ap.add_argument("--phase2-epochs", type=int, default=200)
+    ap.add_argument("--n-trials", type=int, default=50)
+    ap.add_argument("--phase1-epochs", type=int, default=30)
+    ap.add_argument("--phase2-epochs", type=int, default=150)
     ap.add_argument("--patience", type=int, default=10)
     ap.add_argument("--max-gpu-jobs", type=int, default=4)
-    ap.add_argument("--tag", default="v5",
-                    help="Run-dir suffix: runs/optuna_clean_<tag>-<arch>/")
+    ap.add_argument("--tag", default="wsweep")
+    ap.add_argument("--windows", nargs='+', type=float, default=WINDOWS,
+                    help="Window sizes in seconds (default: 1 2 2.5 4)")
+    ap.add_argument("--archs", choices=['all', 'multi', 'fatigue'],
+                    default='all',
+                    help="Which architecture set to sweep")
     args = ap.parse_args()
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -153,12 +156,14 @@ def main():
     status_path = log_dir / "status.json"
 
     steps = make_steps(args.n_trials, args.phase1_epochs, args.phase2_epochs,
-                        args.patience, args.tag)
-    print(f"=== {args.tag.upper()}: {len(steps)} steps ({len(steps) - 1} NN + 1 RF) ===")
-    print(f"   max GPU jobs: {args.max_gpu_jobs}")
-    print(f"   n_trials={args.n_trials}, phase1_epochs={args.phase1_epochs}, "
-          f"phase2_epochs={args.phase2_epochs}, patience={args.patience}")
-    print(f"   reps_mode=soft_overlap  splits=splits_clean_loso.csv")
+                        args.patience, args.tag, args.windows, args.archs)
+    n_nn = sum(1 for s in steps if s["device"] == "gpu")
+    n_rf = sum(1 for s in steps if s["device"] == "cpu")
+    print(f"=== {args.tag.upper()}: {n_nn} NN ({len(args.windows)} windows × "
+          f"{n_nn // len(args.windows)} archs) + {n_rf} RF ===")
+    print(f"  windows: {args.windows}")
+    print(f"  n_trials/job: {args.n_trials}")
+    print(f"  max GPU jobs: {args.max_gpu_jobs}")
     print(f"Log dir: {log_dir}\n")
 
     pending = list(steps)
@@ -168,6 +173,7 @@ def main():
     def write_status():
         status_path.write_text(json.dumps({
             "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "windows": args.windows,
             "n_trials": args.n_trials,
             "running": [{"slug": s, "pid": r["pid"],
                           "elapsed_s": int(time.time() - r["started"]),
@@ -178,7 +184,6 @@ def main():
         }, indent=2))
 
     while pending or running:
-        # Schedule
         i = 0
         while i < len(pending):
             step = pending[i]
@@ -195,8 +200,7 @@ def main():
                 i += 1; continue
             r = launch(step, log_dir)
             running[step["slug"]] = r
-            print(f"[{step['slug']}] LAUNCHED pid={r['pid']} ({step['device']}) "
-                  f"log={r['log']}")
+            print(f"[{step['slug']}] LAUNCHED pid={r['pid']} ({step['device']})")
             pending.pop(i)
         write_status()
 
@@ -217,7 +221,7 @@ def main():
             running.pop(s)
         write_status()
 
-    print(f"\n=== V5 ALL DONE ===")
+    print(f"\n=== {args.tag.upper()} ALL DONE ===")
     for r in finished:
         print(f"  {r['slug']}: {r['status']} ({r['elapsed_s']}s)")
     print(f"\nFull status: {status_path}")

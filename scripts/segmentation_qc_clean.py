@@ -42,6 +42,11 @@ SRC_CLEAN = ROOT / "dataset_clean"
 OUT_ROOT = ROOT / "inspections" / "segmentation_qc_clean"
 XLSX = Path(r"C:\Users\skogl\Downloads\eirikgsk\BioSignal_AI\dataset\Participants\Participants.xlsx")
 
+# Sets that the labeler drops before training (post-QC manual review).
+# Mirror these here so the QC plots match what actually enters the model.
+sys.path.insert(0, str(ROOT))
+from src.labeling.run import _MANUAL_MARKER_EXCLUSIONS  # noqa: E402
+
 # Native sample rates per modality.
 NATIVE_FS = {
     "ecg": 500.0, "emg": 2000.0, "eda": 50.0,
@@ -172,18 +177,26 @@ def _mod_panel(ax, t, v, label, color="#1f4e79"):
         ax.spines[spine].set_visible(False)
 
 
-def _shade_sets(ax, sets_md: list[dict], xlsx_info: Optional[dict]):
+def _shade_sets(ax, sets_md: list[dict], xlsx_info: Optional[dict],
+                excluded: set[int] | None = None):
+    excluded = excluded or set()
     for i, s in enumerate(sets_md):
         sn = s["set_number"]
         t0, t1 = s["start_unix_time"], s["end_unix_time"]
         ex = "unknown"
         if xlsx_info and xlsx_info.get("exercises"):
-            # xlsx maps slot 1..12 to set_numbers in order of appearance
-            # Conservative: use position in the metadata list, not set_number
-            if i < len(xlsx_info["exercises"]):
-                ex = xlsx_info["exercises"][i]
+            # Participants.xlsx slot N corresponds to orig marker N (= sn).
+            # metadata.kinect_sets[i].set_number is also = sn (1-indexed),
+            # so position-based slot=sn-1 lookup is correct here.
+            slot = sn - 1
+            if 0 <= slot < len(xlsx_info["exercises"]):
+                ex = xlsx_info["exercises"][slot]
         col = EXERCISE_PALETTE.get(ex.lower(), EXERCISE_PALETTE["unknown"])
         ax.axvspan(t0, t1, color=col, alpha=0.20, zorder=0)
+        if sn in excluded:
+            # Diagonal-hatch overlay marks sets that the labeler drops.
+            ax.axvspan(t0, t1, facecolor="none", edgecolor="#c0392b",
+                       hatch="///", linewidth=0.0, alpha=0.55, zorder=1)
 
 
 def _draw_reps(ax, markers: list[dict]):
@@ -195,29 +208,39 @@ def _draw_reps(ax, markers: list[dict]):
 
 
 def _annotate_set_labels(ax, sets_md: list[dict], xlsx_info: Optional[dict],
-                         set_quality: dict, y_frac: float = 1.02):
+                         set_quality: dict, excluded: set[int] | None = None,
+                         y_frac: float = 1.02):
     sq_by_n = {s["set_number"]: s for s in set_quality.get("sets", [])}
+    excluded = excluded or set()
     for i, s in enumerate(sets_md):
         sn = s["set_number"]
         t_mid = 0.5 * (s["start_unix_time"] + s["end_unix_time"])
         ex = ""
         rpe = ""
+        slot = sn - 1
         if xlsx_info:
-            if i < len(xlsx_info.get("exercises", [])):
-                ex = xlsx_info["exercises"][i][:4]
+            exs = xlsx_info.get("exercises", [])
+            if 0 <= slot < len(exs):
+                ex = exs[slot][:4]
             rpes = xlsx_info.get("rpes", [])
-            if i < len(rpes) and pd.notna(rpes[i]):
-                rpe = f"R{int(rpes[i])}"
+            if 0 <= slot < len(rpes) and pd.notna(rpes[slot]):
+                rpe = f"R{int(rpes[slot])}"
         sq = sq_by_n.get(sn, {})
         flag_str = ""
         if sq and not sq.get("ok_for_training", True):
             flag_str = "!"
-        ax.text(t_mid, y_frac, f"{sn}{flag_str}\n{ex}{rpe}", transform=ax.get_xaxis_transform(),
-                ha="center", va="bottom", fontsize=7, color="black")
+        if sn in excluded:
+            flag_str = "X"
+        color = "#c0392b" if sn in excluded else "black"
+        ax.text(t_mid, y_frac, f"{sn}{flag_str}\n{ex}{rpe}",
+                transform=ax.get_xaxis_transform(),
+                ha="center", va="bottom", fontsize=7, color=color)
 
 
 def render_overview(rec: str, rec_dir: Path, out_dir: Path,
-                    xlsx_info: Optional[dict]) -> Path:
+                    xlsx_info: Optional[dict],
+                    excluded: set[int] | None = None) -> Path:
+    excluded = excluded or set()
     md = json.loads((rec_dir / "metadata.json").read_text()) if (rec_dir / "metadata.json").exists() else {}
     sets_md = md.get("kinect_sets", [])
     mk = json.loads((rec_dir / "markers.json").read_text()) if (rec_dir / "markers.json").exists() else []
@@ -268,27 +291,33 @@ def render_overview(rec: str, rec_dir: Path, out_dir: Path,
     if len(panels) == 1:
         axes = [axes]
     for ax, (mod, t, v) in zip(axes, panels):
-        _shade_sets(ax, sets_md, xlsx_info)
+        _shade_sets(ax, sets_md, xlsx_info, excluded=excluded)
         _draw_reps(ax, mk)
         nice = {"ecg": "ECG\n(BP 0.5-40 Hz)", "emg": "EMG envelope\n(20-450 Hz RMS)",
                 "eda": "EDA\n(LP 5 Hz)", "acc_mag": "|acc|\n(BP 0.5-20 Hz)",
                 "ppg_green": "PPG-green\n(BP 0.5-8 Hz)", "temperature": "Temp\n(LP 0.1 Hz)"}.get(mod, mod)
         _mod_panel(ax, t, v, nice)
 
-    _annotate_set_labels(axes[0], sets_md, xlsx_info, sq)
+    _annotate_set_labels(axes[0], sets_md, xlsx_info, sq, excluded=excluded)
 
     if t_lo is not None:
         axes[-1].set_xlim(t_lo, t_hi)
     axes[-1].set_xlabel("Unix time (s)")
     subj = xlsx_info.get("subject", "") if xlsx_info else ""
-    fig.suptitle(f"recording_{rec} — {subj}  |  {len(sets_md)} sets, "
-                 f"{sum(1 for s in sq.get('sets', []) if s.get('ok_for_training'))} ok",
-                 fontsize=11)
+    n_excl = sum(1 for s in sets_md if s["set_number"] in excluded)
+    title = (f"recording_{rec} — {subj}  |  {len(sets_md)} sets, "
+             f"{sum(1 for s in sq.get('sets', []) if s.get('ok_for_training'))} ok")
+    if n_excl:
+        title += f", {n_excl} manually excluded"
+    fig.suptitle(title, fontsize=11)
 
     legend_items = [Patch(facecolor=EXERCISE_PALETTE[ex], alpha=0.4, label=ex)
                     for ex in ("squat", "deadlift", "benchpress", "pullup")]
     legend_items.append(Patch(facecolor="none", edgecolor="#1f4e79", label="rep marker"))
-    fig.legend(handles=legend_items, loc="lower center", ncol=5, frameon=False,
+    if n_excl:
+        legend_items.append(Patch(facecolor="none", edgecolor="#c0392b",
+                                   hatch="///", label="manually excluded"))
+    fig.legend(handles=legend_items, loc="lower center", ncol=6, frameon=False,
                bbox_to_anchor=(0.5, -0.01))
 
     fig.tight_layout(rect=(0, 0.03, 1, 0.97))
@@ -299,7 +328,9 @@ def render_overview(rec: str, rec_dir: Path, out_dir: Path,
 
 
 def render_per_set(rec: str, rec_dir: Path, out_dir: Path,
-                   xlsx_info: Optional[dict], pad_s: float = 5.0) -> list[Path]:
+                   xlsx_info: Optional[dict], pad_s: float = 5.0,
+                   excluded: set[int] | None = None) -> list[Path]:
+    excluded = excluded or set()
     md = json.loads((rec_dir / "metadata.json").read_text()) if (rec_dir / "metadata.json").exists() else {}
     sets_md = md.get("kinect_sets", [])
     mk = json.loads((rec_dir / "markers.json").read_text()) if (rec_dir / "markers.json").exists() else []
@@ -344,12 +375,14 @@ def render_per_set(rec: str, rec_dir: Path, out_dir: Path,
         t0, t1 = s["start_unix_time"] - pad_s, s["end_unix_time"] + pad_s
         ex = ""
         rpe = ""
+        slot = sn - 1
         if xlsx_info:
-            if i < len(xlsx_info.get("exercises", [])):
-                ex = xlsx_info["exercises"][i]
+            exs = xlsx_info.get("exercises", [])
+            if 0 <= slot < len(exs):
+                ex = exs[slot]
             rpes = xlsx_info.get("rpes", [])
-            if i < len(rpes) and pd.notna(rpes[i]):
-                rpe = str(int(rpes[i]))
+            if 0 <= slot < len(rpes) and pd.notna(rpes[slot]):
+                rpe = str(int(rpes[slot]))
 
         fig, axes = plt.subplots(len(panels), 1, figsize=(13, 9), sharex=True)
         if len(panels) == 1:
@@ -361,6 +394,10 @@ def render_per_set(rec: str, rec_dir: Path, out_dir: Path,
             ax.axvspan(s["start_unix_time"], s["end_unix_time"],
                        color=EXERCISE_PALETTE.get(ex.lower(), "#bdc3c7"),
                        alpha=0.25, zorder=0)
+            if sn in excluded:
+                ax.axvspan(s["start_unix_time"], s["end_unix_time"],
+                           facecolor="none", edgecolor="#c0392b",
+                           hatch="///", linewidth=0.0, alpha=0.55, zorder=1)
             for e in mk:
                 if "Rep:" in e.get("label", "") and t0 <= e["unix_time"] <= t1:
                     ax.axvline(e["unix_time"], color="#1f4e79", alpha=0.5,
@@ -371,14 +408,19 @@ def render_per_set(rec: str, rec_dir: Path, out_dir: Path,
         axes[-1].set_xlabel("Unix time (s)")
         sq_s = sq_by_n.get(sn, {})
         flag_str = ", ".join(sq_s.get("flags", [])) or "ok"
+        if sn in excluded:
+            flag_str = ("MANUALLY EXCLUDED — labeler drops this set; "
+                        + flag_str)
         title = (f"recording_{rec} — set {sn} ({ex or '?'})  RPE={rpe or '-'}  "
                  f"dur={s['end_unix_time']-s['start_unix_time']:.1f}s  reps={sq_s.get('rep_count_markers', '?')}"
                  f"  | flags: {flag_str}")
-        fig.suptitle(title, fontsize=10)
+        title_color = "#c0392b" if sn in excluded else "black"
+        fig.suptitle(title, fontsize=10, color=title_color)
         fig.tight_layout(rect=(0, 0, 1, 0.96))
 
         ex_short = (ex or "unknown").replace(" ", "")
-        out_p = out_dir / f"set_{sn:02d}_{ex_short}.png"
+        excl_tag = "_EXCLUDED" if sn in excluded else ""
+        out_p = out_dir / f"set_{sn:02d}_{ex_short}{excl_tag}.png"
         fig.savefig(out_p, dpi=110, bbox_inches="tight")
         plt.close(fig)
         out_paths.append(out_p)
@@ -386,7 +428,9 @@ def render_per_set(rec: str, rec_dir: Path, out_dir: Path,
 
 
 def write_report(rec: str, rec_dir: Path, out_dir: Path,
-                 xlsx_info: Optional[dict], per_set_paths: list[Path]) -> Path:
+                 xlsx_info: Optional[dict], per_set_paths: list[Path],
+                 excluded: set[int] | None = None) -> Path:
+    excluded = excluded or set()
     md = json.loads((rec_dir / "metadata.json").read_text()) if (rec_dir / "metadata.json").exists() else {}
     sets_md = md.get("kinect_sets", [])
     sq = json.loads((rec_dir / "set_quality.json").read_text()) if (rec_dir / "set_quality.json").exists() else {"sets": []}
@@ -426,30 +470,49 @@ def write_report(rec: str, rec_dir: Path, out_dir: Path,
         mem_s_str = "inf" if mem_s == float("inf") else (f"{mem_s:.0f}" if isinstance(mem_s, (int, float)) else str(mem_s))
         lines.append(f"| {mod} | {d.get('choice', '-')} | {ds_s_str} | {mem_s_str} |")
 
+    # Manual exclusions banner
+    if excluded:
+        lines += [
+            "",
+            f"**Manually excluded sets (labeler drops these):** "
+            f"{sorted(excluded)} — see _MANUAL_MARKER_EXCLUSIONS in "
+            f"src/labeling/run.py",
+        ]
+
     # Per-set table
     lines += [
         "",
         "## Per-set summary",
         "",
-        "| set | exercise | dur (s) | reps | rpe | flags | ok |",
-        "|-----|----------|---------|------|-----|-------|----|",
+        "| set | exercise | dur (s) | reps | rpe | flags | labeler ok |",
+        "|-----|----------|---------|------|-----|-------|------------|",
     ]
     for i, s in enumerate(sets_md):
         sn = s["set_number"]
         dur = s["end_unix_time"] - s["start_unix_time"]
         ex = ""
         rpe = ""
+        slot = sn - 1
         if xlsx_info:
-            if i < len(xlsx_info.get("exercises", [])):
-                ex = xlsx_info["exercises"][i]
+            exs = xlsx_info.get("exercises", [])
+            if 0 <= slot < len(exs):
+                ex = exs[slot]
             rpes = xlsx_info.get("rpes", [])
-            if i < len(rpes) and pd.notna(rpes[i]):
-                rpe = str(int(rpes[i]))
+            if 0 <= slot < len(rpes) and pd.notna(rpes[slot]):
+                rpe = str(int(rpes[slot]))
         sq_s = sq_by_n.get(sn, {})
         nr = sq_s.get("rep_count_markers", "?")
-        flags = ", ".join(sq_s.get("flags", [])) or "—"
-        ok = "✓" if sq_s.get("ok_for_training") else "✗"
-        lines.append(f"| {sn} | {ex} | {dur:.1f} | {nr} | {rpe} | {flags} | {ok} |")
+        flags = list(sq_s.get("flags", []))
+        if sn in excluded:
+            flags.insert(0, "manually_excluded")
+        flags_str = ", ".join(flags) or "—"
+        if sn in excluded:
+            ok = "✗ excluded"
+        elif sq_s.get("ok_for_training"):
+            ok = "✓"
+        else:
+            ok = "✗"
+        lines.append(f"| {sn} | {ex} | {dur:.1f} | {nr} | {rpe} | {flags_str} | {ok} |")
 
     out_p = out_dir / "report.md"
     out_p.write_text("\n".join(lines), encoding="utf-8")
@@ -492,13 +555,17 @@ def main():
         per_set_dir.mkdir(exist_ok=True)
 
         info = xlsx.get(int(rec))
+        excluded = _MANUAL_MARKER_EXCLUSIONS.get(f"recording_{rec}", set())
         t0 = time.time()
-        ov = render_overview(rec, rec_dir, out_dir, info)
+        ov = render_overview(rec, rec_dir, out_dir, info, excluded=excluded)
         per_set_paths = []
         if not args.no_per_set:
-            per_set_paths = render_per_set(rec, rec_dir, per_set_dir, info)
-        write_report(rec, rec_dir, out_dir, info, per_set_paths)
-        print(f"  rec_{rec}: overview + {len(per_set_paths)} per-set in {time.time()-t0:.1f}s")
+            per_set_paths = render_per_set(rec, rec_dir, per_set_dir, info,
+                                           excluded=excluded)
+        write_report(rec, rec_dir, out_dir, info, per_set_paths,
+                     excluded=excluded)
+        excl_note = f" [excl: {sorted(excluded)}]" if excluded else ""
+        print(f"  rec_{rec}: overview + {len(per_set_paths)} per-set in {time.time()-t0:.1f}s{excl_note}")
 
     print(f"\nDone in {time.time()-t_start:.1f}s. Output: {out_root}")
 

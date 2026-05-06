@@ -37,6 +37,9 @@ htmlcov/
 *.swp
 *.swo
 
+# Claude Code runtime state (lock files, scheduled tasks)
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db

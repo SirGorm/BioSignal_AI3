@@ -150,7 +150,16 @@ def process_recording(rec_id: str, labeled_dir: Path, dataset_dir: Path,
 
     soft, has = compute_soft_overlap(t_unix, set_nums, rep_intervals, window_s)
 
-    df["soft_overlap_reps"] = soft
+    # Column name encodes window size for unique identification across runs:
+    #   2 s  → soft_overlap_reps   (legacy alias)
+    #   1 s  → soft_overlap_reps_1s
+    #   2.5 s → soft_overlap_reps_2_5s
+    #   4 s  → soft_overlap_reps_4s
+    if abs(window_s - 2.0) < 1e-6:
+        col_name = "soft_overlap_reps"  # legacy default
+    else:
+        col_name = f"soft_overlap_reps_{window_s:g}s".replace('.', '_')
+    df[col_name] = soft
     df["has_rep_intervals"] = has
     df.to_parquet(parquet_path, index=False)
 

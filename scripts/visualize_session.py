@@ -54,7 +54,7 @@ WINDOW_S = 2.0  # 2 s model window (matches CLAUDE.md feature-pipeline default)
 # panel) instead of at the left edge. With WINDOW_S=2 and SIGNAL_LOOKBACK_S=1
 # the panel shows a pure lookback window [t-2, t]: middle = "now" (matches the
 # skeleton pose), right edge = newest sample, left edge = 2 s ago.
-SIGNAL_LOOKBACK_S = 1.0
+SIGNAL_LOOKBACK_S = -1.0
 
 # EMG envelope settings (causal, real-time-compatible).
 EMG_BP_LOW_HZ = 20.0    # Konrad (2005), De Luca (2002): 20–450 Hz BP for sEMG
@@ -65,10 +65,10 @@ EMG_RMS_WIN_S = 0.10    # 100 ms RMS window — typical for sEMG envelope displa
 
 MODEL_MODALITIES = ["emg", "acc", "ppg", "temp"]
 SIGNAL_TITLES = {
-    "emg":  "EMG RMS (causal, 100 ms)",
-    "acc":  "ACC mag (100 Hz)",
-    "ppg":  "PPG-green (100 Hz)",
-    "temp": "Temp (1 Hz)",
+    "emg":  "EMG RMS",
+    "acc":  "ACC mag",
+    "ppg":  "PPG-green",
+    "temp": "Temp",
 }
 SIGNAL_COLORS = {
     "emg":  "#d62728",
@@ -154,11 +154,16 @@ def _load_signals(recording_id: int) -> dict[str, dict]:
         try:
             t, y = _read_signal(rec, "temperature", "temperature")
             if len(t) >= 2:
-                signals["temp"] = {"t": t, "y": y, "fs": 1.0}
+                # Linearly resample 1 Hz -> 10 Hz so the panel always has
+                # enough points for a continuous line (2 s windows otherwise
+                # contain only 2 raw samples and can drop to 1 at edges).
+                t_lin = np.arange(t[0], t[-1], 0.1, dtype=np.float64)
+                y_lin = np.interp(t_lin, t, y)
+                signals["temp"] = {"t": t_lin, "y": y_lin, "fs": 10.0}
         except Exception:
             pass
     if "temp" not in signals:
-        signals["temp"] = {"t": np.array([]), "y": np.array([]), "fs": 1.0}
+        signals["temp"] = {"t": np.array([]), "y": np.array([]), "fs": 10.0}
 
     return signals
 
@@ -399,34 +404,35 @@ def _render(
     t_hi = max(sp["t_end"]   for sp in plan) + WINDOW_S
     scales = {m: _signal_y_limits(signals[m], t_lo, t_hi) for m in MODEL_MODALITIES}
 
-    fig = plt.figure(figsize=(14, 8), dpi=110)
-    gs = fig.add_gridspec(nrows=2, ncols=4,
-                          height_ratios=[2.2, 1.0],
-                          width_ratios=[1, 1, 1, 1],
-                          hspace=0.35, wspace=0.35)
-    ax3d = fig.add_subplot(gs[0, 0:3], projection="3d")
-    ax_txt = fig.add_subplot(gs[0, 3]); ax_txt.axis("off")
-
+    fig = plt.figure(figsize=(27, 8), dpi=110)
+    gs = fig.add_gridspec(nrows=1, ncols=3,
+                          width_ratios=[3.9375, 1.8, 0.9],
+                          wspace=0.05)
+    gs_signals = gs[0, 0].subgridspec(nrows=2, ncols=2,
+                                      hspace=0.45, wspace=0.30)
     sig_axes: dict[str, plt.Axes] = {
-        m: fig.add_subplot(gs[1, i]) for i, m in enumerate(MODEL_MODALITIES)
+        "emg":  fig.add_subplot(gs_signals[0, 0]),
+        "acc":  fig.add_subplot(gs_signals[0, 1]),
+        "ppg":  fig.add_subplot(gs_signals[1, 0]),
+        "temp": fig.add_subplot(gs_signals[1, 1]),
     }
+    ax3d = fig.add_subplot(gs[0, 1], projection="3d")
+    ax_txt = fig.add_subplot(gs[0, 2]); ax_txt.axis("off")
     sig_lines: dict[str, plt.Line2D] = {}
     sig_now_dots: dict[str, plt.Line2D] = {}
     for m, ax in sig_axes.items():
-        ax.set_title(SIGNAL_TITLES[m], fontsize=10)
+        ax.set_title(SIGNAL_TITLES[m], fontsize=15, fontweight="bold")
         ax.set_xlim(-WINDOW_S / 2, WINDOW_S / 2)
         ax.set_ylim(*scales[m])
-        # "now" line — middle of the rolling window = the person's current pose.
-        ax.axvline(0.0, color="#d62728", lw=1.4, alpha=0.85, zorder=4)
-        ax.text(0.0, 1.02, "now", transform=ax.get_xaxis_transform(),
-                ha="center", va="bottom", fontsize=8, color="#d62728",
-                fontweight="bold")
         ax.set_xticks([-WINDOW_S / 2, 0.0, WINDOW_S / 2])
         ax.set_xticklabels([f"-{WINDOW_S/2:.0f}s", "0", f"+{WINDOW_S/2:.0f}s"])
-        ax.tick_params(labelsize=8)
+        ax.tick_params(axis="x", labelsize=12)
+        ax.tick_params(axis="y", left=False, labelleft=True, labelsize=10, pad=2)
+        ax.spines["left"].set_visible(False)
+        ax.spines["right"].set_visible(False)
         ax.grid(True, alpha=0.25, lw=0.5)
-        marker = "o" if m == "temp" else None
-        (ln,) = ax.plot([], [], lw=0.9, color=SIGNAL_COLORS[m], marker=marker, ms=3)
+        (ln,) = ax.plot([], [], lw=1.2 if m == "temp" else 0.9,
+                        color=SIGNAL_COLORS[m])
         sig_lines[m] = ln
         # Big dot at x=0 highlights the current sample (matches skeleton frame).
         (dot,) = ax.plot([], [], "o", color="#d62728", mec="black", mew=0.6,
@@ -435,7 +441,7 @@ def _render(
 
     bone_lines: list[plt.Line2D] = []
     joint_scatter = ax3d.scatter([], [], [], s=15, c="#d62728")
-    title = ax3d.set_title("")
+    title = ax3d.set_title("", fontsize=15, fontweight="bold")
 
     def _apply_limits(limits: np.ndarray) -> None:
         ax3d.set_xlim(limits[0])
@@ -444,7 +450,10 @@ def _render(
         ax3d.set_box_aspect((limits[0, 1] - limits[0, 0],
                              limits[1, 1] - limits[1, 0],
                              limits[2, 1] - limits[2, 0]))
-        ax3d.set_xlabel("x (right)"); ax3d.set_ylabel("y (depth)"); ax3d.set_zlabel("z (up)")
+        ax3d.set_xlabel(""); ax3d.set_ylabel(""); ax3d.set_zlabel("")
+        ax3d.set_xticklabels([])
+        ax3d.set_yticklabels([])
+        ax3d.set_zticklabels([])
         ax3d.view_init(elev=10, azim=-80)
 
     def init():
@@ -492,7 +501,7 @@ def _render(
 
         title.set_text(
             f"rec {recording_id}  |  set {sp['set_number']}  |  "
-            f"t={t_set:+.2f}s into set  ({t:.1f} unix)"
+            f"t={t_set:+.2f}s into set"
         )
 
         ax_txt.clear(); ax_txt.axis("off")
@@ -502,12 +511,12 @@ def _render(
         ax_txt.add_patch(plt.Rectangle((0.04, 0.80), 0.92, 0.14,
                                        facecolor=color, alpha=0.8, edgecolor="black"))
         ax_txt.text(0.5, 0.87, ex.upper(), ha="center", va="center",
-                    fontsize=18, fontweight="bold", color="white")
+                    fontsize=22, fontweight="bold", color="white")
         ph_color = PHASE_COLORS.get(phase, "#444444")
         ax_txt.add_patch(plt.Rectangle((0.04, 0.64), 0.92, 0.12,
                                        facecolor=ph_color, alpha=0.6, edgecolor="black"))
         ax_txt.text(0.5, 0.70, f"phase: {phase}", ha="center", va="center",
-                    fontsize=13, fontweight="bold", color="white")
+                    fontsize=19, fontweight="bold", color="white")
         rpe = sp["rpe"]
         lines = [
             f"set number     :  {sp['set_number']}",
@@ -517,11 +526,8 @@ def _render(
             f"t in set       :  {t_set:.2f} s",
         ]
         for k, line in enumerate(lines):
-            ax_txt.text(0.06, 0.55 - k * 0.08, line, ha="left", va="center",
-                        fontsize=13, family="monospace")
-        ax_txt.text(0.06, 0.04,
-                    f"window = {WINDOW_S:.0f} s  (model input)",
-                    fontsize=10, style="italic", color="#555555")
+            ax_txt.text(0.06, 0.55 - k * 0.085, line, ha="left", va="center",
+                        fontsize=22, family="monospace")
 
         for m in MODEL_MODALITIES:
             # Slice centered on (t - SIGNAL_LOOKBACK_S) so that the signal
@@ -540,9 +546,18 @@ def _render(
                 sig_now_dots[m].set_data([0.0], [y[k]])
         return []
 
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.suffix.lower() == ".png":
+        # Single-frame snapshot mode: run init + update once, then savefig.
+        init()
+        update(0)
+        print(f"[viz] writing snapshot -> {output}")
+        fig.savefig(str(output), dpi=110, bbox_inches="tight")
+        plt.close(fig)
+        return output
+
     anim = FuncAnimation(fig, update, frames=len(flat), init_func=init,
                          interval=1000 / fps, blit=False)
-    output.parent.mkdir(parents=True, exist_ok=True)
     if output.suffix.lower() == ".gif":
         writer = PillowWriter(fps=fps)
     elif FFMpegWriter.isAvailable():
@@ -570,6 +585,11 @@ def main() -> None:
                     help="target playback fps (Kinect native ~30)")
     ap.add_argument("--gif-mid", type=float, default=None,
                     help="also write a GIF of N seconds centered in the (single) set")
+    ap.add_argument("--png", action="store_true",
+                    help="also write a PNG snapshot at the middle of the (single) set")
+    ap.add_argument("--png-at", type=float, default=None,
+                    help="seconds into the (single) set for the PNG snapshot "
+                         "(implies --png; overrides the mid-set default)")
     ap.add_argument("--output", type=Path, default=None,
                     help="override MP4 output path (default cache/viz_rec_<id>[_set_<n>].mp4)")
     args = ap.parse_args()
@@ -632,6 +652,26 @@ def main() -> None:
         )
         actual_s = (b - a) / args.fps
         print(f"[viz] gif done -> {gif_written}  ({actual_s:.1f} s, frames {a}..{b})")
+
+    if args.png or args.png_at is not None:
+        if len(plan) != 1:
+            print("[viz] --png[--at] requires --set; skipping PNG")
+            return
+        sp = plan[0]
+        ts = sp["timestamps"]
+        if len(ts) == 0:
+            print("[viz] no frames available for PNG")
+            return
+        offset_s = (args.png_at if args.png_at is not None
+                    else (sp["t_end"] - sp["t_start"]) / 2.0)
+        target_t = sp["t_start"] + offset_s
+        idx = int(np.argmin(np.abs(ts - target_t)))
+        png_out = out.with_suffix(".png")
+        png_written = _render(
+            args.recording, plan, signals, args.fps, png_out, frame_range=(idx, idx + 1)
+        )
+        actual_s = float(ts[idx] - sp["t_start"])
+        print(f"[viz] png done -> {png_written}  (frame {idx}, {actual_s:.2f}s into set)")
 
 
 if __name__ == "__main__":

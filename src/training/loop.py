@@ -149,11 +149,19 @@ def _train_one_epoch(model, loader, loss_fn, opt, scaler, device, cfg):
             preds = model(x)
             total, parts = loss_fn(preds, targets, masks)
 
-        scaler.scale(total).backward()
-        scaler.unscale_(opt)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip)
-        scaler.step(opt)
-        scaler.update()
+        # Skip optimizer step when this batch has no training signal for any
+        # enabled task (all masks False). Fatigue-only + active_only=False can
+        # produce all-rest batches; without this guard AMP grad scaler raises
+        # "No inf checks were recorded for this optimizer".
+        enabled = getattr(loss_fn, 'enabled', None) or list(masks.keys())
+        has_signal = any(bool(masks[k].any().item())
+                         for k in enabled if k in masks)
+        if has_signal:
+            scaler.scale(total).backward()
+            scaler.unscale_(opt)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.grad_clip)
+            scaler.step(opt)
+            scaler.update()
 
         n = next(iter(targets.values())).shape[0]
         total_n += n
@@ -223,15 +231,29 @@ def train_one_fold(
                                  num_workers=cfg.num_workers, device=device)
 
     model = model_factory().to(device)
-    opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr,
-                              weight_decay=cfg.weight_decay)
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.epochs)
     loss_fn = MultiTaskLoss(
         **{f'w_{k}': v for k, v in cfg.loss_weights.items()},
         use_uncertainty_weighting=cfg.use_uncertainty_weighting,
         target_modes=cfg.target_modes,
         enabled_tasks=list(cfg.enabled_tasks),
     ).to(device)
+    # Kendall uncertainty weighting introduces learnable log_var parameters
+    # on the loss module — they MUST be in the optimizer or they stay at 0
+    # and the weighting collapses to a uniform 0.5·Σ losses. Use a separate
+    # param group with weight_decay=0 since log_var is a noise scale, not a
+    # weight, and should not be regularized toward zero.
+    if cfg.use_uncertainty_weighting:
+        opt = torch.optim.AdamW(
+            [
+                {'params': list(model.parameters())},
+                {'params': list(loss_fn.parameters()), 'weight_decay': 0.0},
+            ],
+            lr=cfg.lr, weight_decay=cfg.weight_decay,
+        )
+    else:
+        opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr,
+                                  weight_decay=cfg.weight_decay)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.epochs)
     scaler = GradScaler(enabled=cfg.mixed_precision)
 
     best_val = float('inf')
@@ -349,17 +371,25 @@ def run_cv(
                 'metrics': metrics,
             })
 
-    # Aggregate
-    summary = aggregate_cv_results(all_results)
+    # Aggregate — gate untrained heads so they don't contaminate comparisons
+    summary = aggregate_cv_results(all_results,
+                                    enabled_tasks=list(cfg.enabled_tasks))
     with open(arch_dir / 'cv_summary.json', 'w') as f:
         json.dump({'arch': arch_name, 'summary': summary,
+                    'enabled_tasks': list(cfg.enabled_tasks),
                     'all_results': all_results}, f, indent=2, default=_jsonable)
     print(f"\n[run_cv] {arch_name} complete. Summary in {arch_dir}/cv_summary.json")
     return summary, all_results
 
 
-def aggregate_cv_results(all_results: List[Dict]) -> Dict:
-    """Mean ± std across folds × seeds for each task metric."""
+def aggregate_cv_results(all_results: List[Dict],
+                          enabled_tasks: Optional[List[str]] = None) -> Dict:
+    """Mean ± std across folds × seeds for each task metric.
+
+    Tasks not in ``enabled_tasks`` are marked ``{'untrained': True}`` so plots
+    and tables can skip them — predictions from a non-enabled head come from
+    a random-init linear layer and must not be compared to trained metrics.
+    """
     def _collect(task: str, metric: str):
         vals = []
         for r in all_results:
@@ -371,20 +401,29 @@ def aggregate_cv_results(all_results: List[Dict]) -> Dict:
         return {'mean': float(np.mean(vals)), 'std': float(np.std(vals)),
                 'n': len(vals)}
 
+    enabled = (set(enabled_tasks)
+               if enabled_tasks is not None
+               else {'exercise', 'phase', 'fatigue', 'reps'})
+
+    def _block(task: str, metrics: Dict[str, Dict]):
+        if task not in enabled:
+            return {'untrained': True}
+        return metrics
+
     return {
-        'exercise': {
+        'exercise': _block('exercise', {
             'f1_macro':  _collect('exercise', 'f1_macro'),
             'balanced_accuracy': _collect('exercise', 'balanced_accuracy'),
-        },
-        'phase': {
+        }),
+        'phase': _block('phase', {
             'f1_macro':  _collect('phase', 'f1_macro'),
             'balanced_accuracy': _collect('phase', 'balanced_accuracy'),
-        },
-        'fatigue': {
+        }),
+        'fatigue': _block('fatigue', {
             'mae':       _collect('fatigue', 'mae'),
             'pearson_r': _collect('fatigue', 'pearson_r'),
-        },
-        'reps': {
+        }),
+        'reps': _block('reps', {
             'mae':       _collect('reps', 'mae'),
-        },
+        }),
     }

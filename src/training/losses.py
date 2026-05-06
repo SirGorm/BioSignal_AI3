@@ -57,7 +57,7 @@ class MultiTaskLoss(nn.Module):
             self._uw_keys = [k for k in ('exercise', 'phase', 'fatigue', 'reps')
                               if k in self.enabled]
             self.log_var = nn.Parameter(torch.zeros(len(self._uw_keys)))
-        modes = {'reps': 'hard', 'phase': 'hard'}
+        modes = {'reps': 'hard', 'phase': 'soft'}
         if target_modes:
             modes.update(target_modes)
         self.target_modes = modes
@@ -71,10 +71,12 @@ class MultiTaskLoss(nn.Module):
         device = preds['exercise'].device
         zero = torch.tensor(0.0, device=device, requires_grad=False)
         losses: Dict[str, torch.Tensor] = {}
+        has_signal: Dict[str, bool] = {}
 
         # exercise: hard cross-entropy
         m = masks['exercise']
-        if m.any():
+        has_signal['exercise'] = bool(m.any())
+        if has_signal['exercise']:
             losses['exercise'] = F.cross_entropy(preds['exercise'][m],
                                                    targets['exercise'][m])
         else:
@@ -82,7 +84,8 @@ class MultiTaskLoss(nn.Module):
 
         # phase: hard CE or soft KL-div
         m = masks['phase']
-        if m.any():
+        has_signal['phase'] = bool(m.any())
+        if has_signal['phase']:
             if self.target_modes['phase'] == 'soft':
                 # targets['phase'] is (B, K) probability vector
                 log_p = F.log_softmax(preds['phase'][m], dim=-1)
@@ -97,24 +100,32 @@ class MultiTaskLoss(nn.Module):
 
         # Regression (L1 / smooth L1)
         m = masks['fatigue']
-        if m.any():
+        has_signal['fatigue'] = bool(m.any())
+        if has_signal['fatigue']:
             losses['fatigue'] = F.l1_loss(preds['fatigue'][m],
                                             targets['fatigue'][m].float())
         else:
             losses['fatigue'] = zero.clone()
 
         m = masks['reps']
-        if m.any():
+        has_signal['reps'] = bool(m.any())
+        if has_signal['reps']:
             losses['reps'] = F.smooth_l1_loss(preds['reps'][m],
                                                 targets['reps'][m].float())
         else:
             losses['reps'] = zero.clone()
 
         if self.use_uncertainty:
-            total = sum(
+            # Skip terms for tasks with no valid samples in this batch.
+            # The 0.5·log_var regularizer would otherwise pull log_var toward
+            # -∞ even when the loss term is a detached zero, biasing the
+            # learned task weights on imbalanced batches (common when
+            # active_only=False or fatigue-only training mixes rest windows).
+            terms = [
                 0.5 * torch.exp(-self.log_var[i]) * losses[k] + 0.5 * self.log_var[i]
-                for i, k in enumerate(self._uw_keys)
-            )
+                for i, k in enumerate(self._uw_keys) if has_signal[k]
+            ]
+            total = sum(terms) if terms else zero.clone()
         else:
             total = sum(self.weights[k] * losses[k]
                         for k in losses if k in self.enabled)

@@ -111,25 +111,50 @@ def build_factory(cls, variant: str, ds, hps: Dict):
     return factory
 
 
-def score_summary(summary: Dict, enabled_tasks: list = None) -> float:
-    """Lower is better. Combines tasks via z-rank-style aggregation.
+# Each metric is rescaled into a [0,1] error contribution before averaging,
+# so all enabled tasks (heads) contribute equally regardless of native scale.
+# Bounds are fixed (not per-trial) so trial scores stay comparable across runs.
+TASK_NORMALIZERS = [
+    # (task, metric, fn(v) → [0,1] normalized error; lower = better)
+    ('exercise', 'f1_macro',  lambda v: 1.0 - v),                # F1 → 1-F1
+    ('phase',    'f1_macro',  lambda v: 1.0 - v),
+    ('fatigue',  'mae',        lambda v: min(v / 3.0, 1.0)),     # 3 RPE-pts ≈ trivial-mean baseline
+    ('fatigue',  'pearson_r',  lambda v: (1.0 - v) / 2.0),       # r=1 → 0, r=-1 → 1
+    ('reps',     'mae',        lambda v: min(v / 1.0, 1.0)),     # soft_overlap ∈ [0,1]
+]
+# Within a single task, blend its metrics. Fatigue uses MAE+r so the optimizer
+# isn't fooled by "regression-to-mean" predictions that minimize MAE without
+# learning rep-by-rep variation.
+TASK_METRIC_WEIGHTS = {
+    'fatigue': {'mae': 0.5, 'pearson_r': 0.5},
+}
 
-    When enabled_tasks is given, only those tasks contribute to the score —
-    important for single-task training where Optuna must optimize the right
-    objective.
+
+def score_summary(summary: Dict, enabled_tasks: list = None) -> float:
+    """Lower is better. Each enabled task contributes EQUALLY to the score
+    by first mapping its metrics into a [0,1] error scale, then averaging
+    metrics within a task, then averaging across tasks.
+
+    When enabled_tasks is given, only those tasks contribute — important for
+    single-task training where Optuna must optimize the right objective.
     """
-    parts = []
-    for task, metric, sign in [
-        ('exercise', 'f1_macro', -1),  # higher F1 = lower score
-        ('phase',    'f1_macro', -1),
-        ('fatigue',  'mae',      +1),
-        ('reps',     'mae',      +1),
-    ]:
+    by_task: Dict[str, list] = {}
+    for task, metric, fn in TASK_NORMALIZERS:
         if enabled_tasks is not None and task not in enabled_tasks:
             continue
         v = summary.get(task, {}).get(metric, {}).get('mean')
-        if v is not None and not np.isnan(v):
-            parts.append(sign * float(v))
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            continue
+        by_task.setdefault(task, []).append((metric, fn(float(v))))
+    parts = []
+    for task, metric_vals in by_task.items():
+        weights = TASK_METRIC_WEIGHTS.get(task)
+        if weights:
+            num = sum(weights.get(m, 0.0) * v for m, v in metric_vals)
+            den = sum(weights.get(m, 0.0) for m, _ in metric_vals)
+            parts.append(num / den if den > 0 else float('inf'))
+        else:
+            parts.append(float(np.mean([v for _, v in metric_vals])))
     return float(np.mean(parts)) if parts else float('inf')
 
 
@@ -191,8 +216,13 @@ def main():
                         'scripts/add_soft_overlap_reps.py to have been run).')
     p.add_argument('--phase-mode',
                    choices=['hard', 'soft'],
-                   default='hard',
-                   help='Phase classification target representation.')
+                   default='soft',
+                   help='Phase classification target representation. Default '
+                        'soft (KL-div on per-window phase distribution).')
+    p.add_argument('--window-s', type=float, default=2.0,
+                   help='Window length in seconds. Hop = window/2 (50%% overlap). '
+                        'soft_overlap reps column auto-selected to match. '
+                        'Default 2.0 (matches raw_window_dataset legacy WINDOW_SIZE=200).')
     p.add_argument('--num-workers', type=int, default=None,
                    help='Default: 2 (features) or 8 (raw)')
     p.add_argument('--exclude-recordings', nargs='*', default=[],
@@ -246,12 +276,15 @@ def main():
         dataset = WindowFeatureDataset(window_parquets=files, active_only=True,
                                          phase_whitelist=phase_wl,
                                          feature_cols=feat_cols,
-                                         target_modes=target_modes)
+                                         target_modes=target_modes,
+                                         window_s=args.window_s)
     else:
         dataset = RawMultimodalWindowDataset(parquet_paths=files, active_only=True,
                                                phase_whitelist=phase_wl,
-                                               target_modes=target_modes)
-    print(f"[optuna] target_modes={target_modes}  enabled_tasks={args.tasks}")
+                                               target_modes=target_modes,
+                                               window_s=args.window_s)
+    print(f"[optuna] window_s={args.window_s}  target_modes={target_modes}  "
+          f"enabled_tasks={args.tasks}")
     print(f"[optuna] {args.variant} dataset: {len(dataset)} windows")
 
     # Move dataset to GPU once and bypass DataLoader for the rest of the run.
