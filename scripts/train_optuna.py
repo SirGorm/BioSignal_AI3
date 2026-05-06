@@ -238,12 +238,13 @@ def main():
     p.add_argument('--norm-mode',
                    choices=['baseline', 'robust', 'percentile'],
                    default='baseline',
-                   help='Per-recording normalization for the raw path. '
-                        '"baseline" = mean/std on first 90s rest (legacy); '
-                        '"robust" = median+MAD on full recording (handles '
-                        'heavy-lift outliers); "percentile" = mean ± 99th '
-                        'percentile of |x-mean| (equalizes max activation '
-                        'across subjects, addresses exercise overfitting).')
+                   help='Per-recording normalization mode. Applies to BOTH '
+                        'raw and features paths. "baseline" = mean/std on '
+                        'first 90s rest (legacy); "robust" = median+MAD on '
+                        'full recording; "percentile" = center on baseline '
+                        'mean, scale by 99th percentile of |x - center| '
+                        '(equalizes max activation across subjects, '
+                        'addresses exercise overfitting).')
     p.add_argument('--skip-phase2', action='store_true')
     p.add_argument('--labeled-root', type=Path, default=Path('data/labeled'))
     p.add_argument('--runs-root', type=Path, default=Path('runs'))
@@ -286,7 +287,8 @@ def main():
                                          phase_whitelist=phase_wl,
                                          feature_cols=feat_cols,
                                          target_modes=target_modes,
-                                         window_s=args.window_s)
+                                         window_s=args.window_s,
+                                         norm_mode=args.norm_mode)
     else:
         dataset = RawMultimodalWindowDataset(parquet_paths=files, active_only=True,
                                                phase_whitelist=phase_wl,

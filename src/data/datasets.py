@@ -108,7 +108,12 @@ class WindowFeatureDataset(Dataset):
         verbose: bool = True,
         stride: Optional[int] = None,
         window_s: float = 2.0,
+        norm_mode: str = "baseline",
     ):
+        if norm_mode not in ("baseline", "robust", "percentile"):
+            raise ValueError(f"norm_mode={norm_mode!r} not in "
+                             "{'baseline', 'robust', 'percentile'}")
+        self.norm_mode = norm_mode
         # If stride not given, default to window_s/2 × 100 Hz (50 % overlap on
         # the 100 Hz feature grid). Matches raw NN windowing for fairness.
         if stride is None:
@@ -198,12 +203,17 @@ class WindowFeatureDataset(Dataset):
 
         x_arr = df[feature_cols].to_numpy(dtype=np.float32)
 
-        # Per-recording z-score using the first 90 s baseline period.
-        # Removes subject-specific absolute-amplitude bias so the model can't
-        # use "this is Hytten's baseline emg_rms" as an exercise-classification
-        # shortcut. Mirrors the baseline rule already applied on the raw path
-        # (src/data/raw_window_dataset.py). Falls back to full-recording stats
-        # per feature when the baseline slice is too sparse (e.g., temp).
+        # Per-recording feature normalization. Three modes mirror the raw
+        # path (src/data/raw_window_dataset.py):
+        #   "baseline"   : center=baseline mean, scale=baseline std.
+        #   "robust"     : center=full-recording median,
+        #                   scale=MAD × 1.4826.
+        #   "percentile" : center=baseline mean,
+        #                   scale=99-percentile of |feature - center|
+        #                   over the full recording. Equalizes "max
+        #                   activation" scale across subjects.
+        # Sparse-feature fallback (< 100 valid baseline rows) drops to
+        # full-recording stats for that feature.
         BASELINE_S = 90.0
         rec_ids = df['recording_id'].to_numpy()
         t_sess = df['t_session_s'].to_numpy()
@@ -213,27 +223,31 @@ class WindowFeatureDataset(Dataset):
             base_mask = rec_mask & (t_sess < BASELINE_S)
             base_rows = x_arr[base_mask]
             full_rows = x_arr[rec_mask]
-            mean = np.zeros(n_feat, dtype=np.float32)
-            std = np.ones(n_feat, dtype=np.float32)
+            center = np.zeros(n_feat, dtype=np.float32)
+            scale = np.ones(n_feat, dtype=np.float32)
             for j in range(n_feat):
                 col_base = base_rows[:, j]
-                valid = col_base[~np.isnan(col_base)]
-                if len(valid) >= 100:
-                    mean[j] = float(np.mean(valid))
-                    s = float(np.std(valid))
-                else:
-                    col_full = full_rows[:, j]
-                    valid_full = col_full[~np.isnan(col_full)]
-                    if len(valid_full) >= 100:
-                        mean[j] = float(np.mean(valid_full))
-                        s = float(np.std(valid_full))
-                    else:
-                        s = 1.0
-                std[j] = s if s > 1e-8 else 1.0
-            x_arr[rec_mask] = (x_arr[rec_mask] - mean) / std
-        # Bursty features (EMG amplitude under heavy sets) can yield large
-        # post-normalization values when the baseline std is small. Clip so
-        # the NN never sees > 8 sigma outliers.
+                col_full = full_rows[:, j]
+                base_valid = col_base[~np.isnan(col_base)]
+                full_valid = col_full[~np.isnan(col_full)]
+                if len(full_valid) == 0:
+                    continue
+                if self.norm_mode == "baseline":
+                    use = base_valid if len(base_valid) >= 100 else full_valid
+                    center[j] = float(np.mean(use))
+                    s = float(np.std(use))
+                elif self.norm_mode == "robust":
+                    med = float(np.median(full_valid))
+                    mad = float(np.median(np.abs(full_valid - med)))
+                    center[j] = med
+                    s = mad * 1.4826
+                else:  # percentile
+                    base_ref = base_valid if len(base_valid) >= 100 else full_valid
+                    center[j] = float(np.mean(base_ref))
+                    s = float(np.percentile(np.abs(full_valid - center[j]), 99.0))
+                scale[j] = s if s > 1e-8 else 1.0
+            x_arr[rec_mask] = (x_arr[rec_mask] - center) / scale
+        # Clip outliers; loose enough for bursty features under heavy sets.
         x_arr = np.clip(x_arr, -8.0, 8.0)
 
         n_nan = int(np.isnan(x_arr).sum())
@@ -242,7 +256,7 @@ class WindowFeatureDataset(Dataset):
                   f"({n_nan/x_arr.size:.2%}); replacing with 0.")
         x_arr = np.nan_to_num(x_arr, nan=0.0, posinf=0.0, neginf=0.0)
         if verbose:
-            print(f"[dataset] per-recording baseline z-score normalized "
+            print(f"[dataset] per-recording {self.norm_mode} normalization "
                   f"({len(np.unique(rec_ids))} recordings, baseline={BASELINE_S}s)")
         self.X = torch.from_numpy(x_arr)
 
