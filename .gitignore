@@ -4,11 +4,14 @@ dataset_aligned/
 dataset_clean/
 
 # Generated artifacts (regenerable from /label and /train)
-data/
-runs/
-inspections/
-logs/
-diagrams/
+# Anchor to repo root with leading slash so we don't accidentally ignore
+# src/data/ (the Python package) — gitignore patterns without leading slash
+# match the directory at any depth.
+/data/
+/runs/
+/inspections/
+/logs/
+/diagrams/
 
 # Python
 __pycache__/
