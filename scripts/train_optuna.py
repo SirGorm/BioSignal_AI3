@@ -131,13 +131,27 @@ TASK_METRIC_WEIGHTS = {
 
 
 def score_summary(summary: Dict, enabled_tasks: list = None) -> float:
-    """Lower is better. Each enabled task contributes EQUALLY to the score
-    by first mapping its metrics into a [0,1] error scale, then averaging
-    metrics within a task, then averaging across tasks.
+    """Lower is better.
 
-    When enabled_tasks is given, only those tasks contribute — important for
-    single-task training where Optuna must optimize the right objective.
+    Returns the mean uncertainty-weighted val_total across CV folds. This is
+    the same multi-task loss the model trains on (with learnable per-task
+    sigma_k from MultiTaskLoss), so Optuna optimizes the same objective
+    that training does — no separate composite scoring is needed.
+
+    Falls back to the legacy normalized-metric composite if val_total is
+    missing (e.g., cv_summary written before this change).
+
+    The ``enabled_tasks`` argument is kept for API compatibility but ignored:
+    the uncertainty-weighted total already reflects only the enabled tasks
+    (untrained heads contribute zero loss inside MultiTaskLoss).
     """
+    vt = summary.get('val_total')
+    if isinstance(vt, dict) and 'mean' in vt:
+        m = vt.get('mean')
+        if m is not None and not (isinstance(m, float) and np.isnan(m)):
+            return float(m)
+
+    # ---- Legacy composite fallback (for old cached cv_summary files) ----
     by_task: Dict[str, list] = {}
     for task, metric, fn in TASK_NORMALIZERS:
         if enabled_tasks is not None and task not in enabled_tasks:

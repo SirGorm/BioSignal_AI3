@@ -321,6 +321,12 @@ def train_one_fold(
     final_losses, final_metrics, preds, targets, masks = _evaluate(
         model, test_loader, loss_fn, device, cfg, n_exercise, n_phase
     )
+    # Surface the uncertainty-weighted total val loss so Optuna can rank
+    # trials by it directly (no separate composite score needed).
+    final_metrics['val_total'] = float(final_losses['total'])
+    final_metrics['val_total_per_task'] = {
+        k: float(v) for k, v in final_losses.items() if k != 'total'
+    }
 
     # Persist
     torch.save({'state_dict': best_state, 'config': cfg.__dict__},
@@ -439,7 +445,21 @@ def aggregate_cv_results(all_results: List[Dict],
             return {'untrained': True}
         return metrics
 
+    # Mean uncertainty-weighted val_total across folds (used by Optuna).
+    val_totals = [r['metrics'].get('val_total') for r in all_results]
+    val_totals = [float(v) for v in val_totals
+                  if v is not None and not (isinstance(v, float) and np.isnan(v))]
+    if val_totals:
+        val_total_block = {
+            'mean': float(np.mean(val_totals)),
+            'std': float(np.std(val_totals)),
+            'n': len(val_totals),
+        }
+    else:
+        val_total_block = {'mean': float('nan'), 'std': float('nan'), 'n': 0}
+
     return {
+        'val_total': val_total_block,
         'exercise': _block('exercise', {
             'f1_macro':  _collect('exercise', 'f1_macro'),
             'balanced_accuracy': _collect('exercise', 'balanced_accuracy'),
