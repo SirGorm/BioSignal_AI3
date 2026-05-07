@@ -1,0 +1,14 @@
+{
+  "arch": "cnn1d_raw",
+  "variant": "raw",
+  "n_trials": 50,
+  "phase1_epochs": 50,
+  "phase2_epochs": 300,
+  "phase2_seeds": [
+    42,
+    1337,
+    7
+  ],
+  "num_workers": 0,
+  "use_uncertainty": true
+}
