@@ -1,0 +1,240 @@
+{
+  "arch": "cnn_lstm_raw",
+  "summary": {
+    "val_total": {
+      "mean": 1.9868024587631226,
+      "std": 0.3534229841433405,
+      "n": 5
+    },
+    "exercise": {
+      "f1_macro": {
+        "mean": 0.12459168740689967,
+        "std": 0.011791561907165104,
+        "n": 5
+      },
+      "balanced_accuracy": {
+        "mean": 0.25,
+        "std": 0.0,
+        "n": 5
+      }
+    },
+    "phase": {
+      "f1_macro": {
+        "mean": 0.2185095569228923,
+        "std": 0.04664658874356374,
+        "n": 5
+      },
+      "balanced_accuracy": {
+        "mean": 0.33299145299145294,
+        "std": 0.0006837606837606814,
+        "n": 5
+      }
+    },
+    "fatigue": {
+      "mae": {
+        "mean": 2.063236032774435,
+        "std": 0.6679204268746972,
+        "n": 5
+      },
+      "pearson_r": {
+        "mean": 0.2344416435538817,
+        "std": 0.25353995884802205,
+        "n": 5
+      }
+    },
+    "reps": {
+      "mae": {
+        "mean": 0.5880415874689066,
+        "std": 0.08877179020809968,
+        "n": 5
+      }
+    }
+  },
+  "enabled_tasks": [
+    "exercise",
+    "phase",
+    "fatigue",
+    "reps"
+  ],
+  "all_results": [
+    {
+      "seed": 42,
+      "fold": 0,
+      "test_subjects": [
+        "Tias",
+        "sivert"
+      ],
+      "metrics": {
+        "exercise": {
+          "f1_macro": 0.10990712074303406,
+          "balanced_accuracy": 0.25,
+          "n": 252
+        },
+        "phase": {
+          "f1_macro": 0.1695303550973654,
+          "balanced_accuracy": 0.3333333333333333,
+          "n": 217
+        },
+        "fatigue": {
+          "mae": 2.3384176587301586,
+          "pearson_r": 0.08320337692358845,
+          "n": 252
+        },
+        "reps": {
+          "mae": 0.5140050647205838,
+          "n": 214
+        },
+        "val_total": 2.1284921169281006,
+        "val_total_per_task": {
+          "exercise": 1.3934558629989624,
+          "phase": 0.3650886118412018,
+          "fatigue": 2.3384177684783936,
+          "reps": 0.21259503066539764
+        }
+      }
+    },
+    {
+      "seed": 42,
+      "fold": 1,
+      "test_subjects": [
+        "Raghild",
+        "michael"
+      ],
+      "metrics": {
+        "exercise": {
+          "f1_macro": 0.12322946175637393,
+          "balanced_accuracy": 0.25,
+          "n": 266
+        },
+        "phase": {
+          "f1_macro": 0.2206896551724138,
+          "balanced_accuracy": 0.3333333333333333,
+          "n": 194
+        },
+        "fatigue": {
+          "mae": 2.5007195723684212,
+          "pearson_r": 0.18206183925437705,
+          "n": 266
+        },
+        "reps": {
+          "mae": 0.5912181464905935,
+          "n": 189
+        },
+        "val_total": 2.1858434677124023,
+        "val_total_per_task": {
+          "exercise": 1.3473074436187744,
+          "phase": 0.3383740484714508,
+          "fatigue": 2.5007195472717285,
+          "reps": 0.23978346586227417
+        }
+      }
+    },
+    {
+      "seed": 42,
+      "fold": 2,
+      "test_subjects": [
+        "Juile",
+        "lucas 2"
+      ],
+      "metrics": {
+        "exercise": {
+          "f1_macro": 0.12189054726368159,
+          "balanced_accuracy": 0.25,
+          "n": 304
+        },
+        "phase": {
+          "f1_macro": 0.1983640081799591,
+          "balanced_accuracy": 0.3333333333333333,
+          "n": 229
+        },
+        "fatigue": {
+          "mae": 2.4093081825657894,
+          "pearson_r": 0.6371398881814689,
+          "n": 304
+        },
+        "reps": {
+          "mae": 0.6190110410484297,
+          "n": 223
+        },
+        "val_total": 2.197723627090454,
+        "val_total_per_task": {
+          "exercise": 1.378016471862793,
+          "phase": 0.38712042570114136,
+          "fatigue": 2.4093081951141357,
+          "reps": 0.27313077449798584
+        }
+      }
+    },
+    {
+      "seed": 42,
+      "fold": 3,
+      "test_subjects": [
+        "Hytten",
+        "lucas"
+      ],
+      "metrics": {
+        "exercise": {
+          "f1_macro": 0.1461038961038961,
+          "balanced_accuracy": 0.25,
+          "n": 218
+        },
+        "phase": {
+          "f1_macro": 0.1979949874686717,
+          "balanced_accuracy": 0.3333333333333333,
+          "n": 187
+        },
+        "fatigue": {
+          "mae": 2.3348803038990824,
+          "pearson_r": -0.10364986591242532,
+          "n": 218
+        },
+        "reps": {
+          "mae": 0.734785744353481,
+          "n": 184
+        },
+        "val_total": 2.1400442123413086,
+        "val_total_per_task": {
+          "exercise": 1.3162225484848022,
+          "phase": 0.33937156200408936,
+          "fatigue": 2.3348801136016846,
+          "reps": 0.33924025297164917
+        }
+      }
+    },
+    {
+      "seed": 42,
+      "fold": 4,
+      "test_subjects": [
+        "kiyomi"
+      ],
+      "metrics": {
+        "exercise": {
+          "f1_macro": 0.1218274111675127,
+          "balanced_accuracy": 0.25,
+          "n": 149
+        },
+        "phase": {
+          "f1_macro": 0.30596877869605144,
+          "balanced_accuracy": 0.3316239316239316,
+          "n": 149
+        },
+        "fatigue": {
+          "mae": 0.7328544463087249,
+          "pearson_r": 0.37345297932239924,
+          "n": 149
+        },
+        "reps": {
+          "mae": 0.4811879407314446,
+          "n": 149
+        },
+        "val_total": 1.2819088697433472,
+        "val_total_per_task": {
+          "exercise": 1.37879478931427,
+          "phase": 0.30886590480804443,
+          "fatigue": 0.732854425907135,
+          "reps": 0.18533238768577576
+        }
+      }
+    }
+  ]
+}

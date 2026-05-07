@@ -1,0 +1,27 @@
+{
+  "epochs": 50,
+  "batch_size": 64,
+  "lr": 0.0015883867895579353,
+  "weight_decay": 4.6779840223588256e-05,
+  "grad_clip": 1.0,
+  "patience": 50,
+  "mixed_precision": true,
+  "num_workers": 0,
+  "use_uncertainty_weighting": true,
+  "loss_weights": {
+    "exercise": 1.0,
+    "phase": 1.0,
+    "fatigue": 1.0,
+    "reps": 0.5
+  },
+  "target_modes": {
+    "reps": "soft_window",
+    "phase": "soft"
+  },
+  "enabled_tasks": [
+    "exercise",
+    "phase",
+    "fatigue",
+    "reps"
+  ]
+}

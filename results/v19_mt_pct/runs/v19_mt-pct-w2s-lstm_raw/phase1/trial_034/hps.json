@@ -1,0 +1,10 @@
+{
+  "lr": 0.003910100583485774,
+  "weight_decay": 4.432450182231649e-06,
+  "batch_size": 64,
+  "dropout": 0.24132606036364307,
+  "repr_dim": 128,
+  "lstm_hidden": 64,
+  "lstm_layers": 2,
+  "_patience": 50
+}
