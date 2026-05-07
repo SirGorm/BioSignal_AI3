@@ -42,12 +42,14 @@ def main():
                     help='Output dir; phase2/ is written here')
     p.add_argument('--include-rest', action='store_true',
                     help='Include rest windows (active_only=False)')
-    p.add_argument('--phase2-epochs', type=int, default=300)
-    p.add_argument('--patience', type=int, default=20)
-    p.add_argument('--phase2-seeds', type=int, nargs='+', default=[42, 1337, 7])
+    p.add_argument('--phase2-epochs', type=int, default=150)
+    p.add_argument('--patience', type=int, default=10)
+    p.add_argument('--phase2-seeds', type=int, nargs='+', default=[42, 1337, 7],
+                    help='Default 3 seeds for variance estimation.')
     p.add_argument('--tasks', nargs='+',
                     default=['exercise', 'phase', 'fatigue', 'reps'])
-    p.add_argument('--reps-mode', default='soft_overlap')
+    p.add_argument('--reps-mode', default='soft_window',
+                    choices=['hard', 'soft_window', 'soft_overlap'])
     p.add_argument('--phase-mode', default='soft', choices=['hard', 'soft'])
     p.add_argument('--window-s', type=float, default=2.0)
     p.add_argument('--num-workers', type=int, default=None)
@@ -60,8 +62,14 @@ def main():
                     help='Restrict raw-variant input to a subset of '
                          '[emg, ppg_green, acc_mag, temp] (modality ablation).')
     p.add_argument('--no-uncertainty', action='store_true')
+    p.add_argument('--no-tight-hps', dest='tight_hps', action='store_false',
+                    help='Use wide HP search space (default: tight, must '
+                         'match how the source run was trained).')
+    p.set_defaults(tight_hps=True)
     p.add_argument('--labeled-root', type=Path, default=Path('data/labeled'))
-    p.add_argument('--splits', type=Path, default=Path('configs/splits.csv'))
+    p.add_argument('--splits', type=Path,
+                    default=Path('configs/splits_loso.csv'),
+                    help='Default LOSO (10 folds). Pass configs/splits.csv for 5-fold.')
     args = p.parse_args()
 
     if args.num_workers is None:
@@ -76,7 +84,8 @@ def main():
     src = json.loads(src_hp.read_text())
     best_hps = src['best_hps']
     # Re-merge architecture defaults that weren't sampled.
-    sample = suggest_hps(optuna.trial.FixedTrial({**best_hps}), args.arch)
+    sample = suggest_hps(optuna.trial.FixedTrial({**best_hps}), args.arch,
+                          tight=args.tight_hps)
     best_hps_full = {**sample, **best_hps}
     best_hps_full['_patience'] = args.patience
     print(f"[phase2-only] HPs from {src_hp}")
@@ -171,6 +180,45 @@ def main():
     elapsed = time.time() - t0
     print(f"[phase2-only] DONE in {elapsed/60:.1f} min")
     print(json.dumps(summary, indent=2))
+
+    # ---- Pick best fold and copy its checkpoint to top-level out_dir ----
+    import shutil
+    best_fold = None
+    best_score = float('inf')
+    for fold_dir in p2_dir.rglob('fold_*'):
+        m_path = fold_dir / 'metrics.json'
+        ckpt = fold_dir / 'checkpoint_best.pt'
+        if not (m_path.exists() and ckpt.exists()):
+            continue
+        m = json.loads(m_path.read_text())
+        score = m.get('val_total')
+        if score is None:
+            continue
+        if score < best_score:
+            best_score = float(score)
+            best_fold = (fold_dir, m, ckpt)
+
+    if best_fold is not None:
+        fold_dir, m, ckpt = best_fold
+        target = out_dir / 'best_model.pt'
+        shutil.copy2(ckpt, target)
+        meta = {
+            'best_fold_dir': str(fold_dir.relative_to(out_dir)),
+            'val_total': best_score,
+            'test_subjects': m.get('test_subjects', []),
+            'metrics': {k: m.get(k) for k in ('exercise', 'phase', 'fatigue',
+                                               'reps') if k in m},
+            'arch': args.arch, 'variant': args.variant,
+            'window_s': args.window_s,
+            'tight_hps': args.tight_hps,
+            'best_hps': best_hps_full,
+        }
+        (out_dir / 'best_model_meta.json').write_text(json.dumps(meta, indent=2,
+                                                                   default=str))
+        print(f"[phase2-only] Best fold: {fold_dir.relative_to(out_dir)}  "
+              f"val_total={best_score:.4f}  "
+              f"test={m.get('test_subjects', '?')}")
+        print(f"[phase2-only] Wrote {target} + best_model_meta.json")
 
 
 if __name__ == '__main__':

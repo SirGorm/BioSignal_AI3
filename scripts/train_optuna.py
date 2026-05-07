@@ -61,7 +61,31 @@ RAW_REGISTRY = {
 }
 
 
-def suggest_hps(trial: optuna.Trial, arch: str) -> Dict:
+def suggest_hps(trial: optuna.Trial, arch: str, tight: bool = False) -> Dict:
+    """Optuna search space.
+
+    `tight=True` shrinks the search space toward smaller / more regularised
+    configurations — used to combat overfit on the low-N regime (~95
+    effective sets, ~10 subjects). Smaller hidden dims, stricter dropout
+    floor, larger weight_decay floor, fewer LSTM layers.
+    """
+    if tight:
+        hps = {
+            'lr':           trial.suggest_float('lr', 1e-4, 3e-3, log=True),
+            'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-2, log=True),
+            'batch_size':   trial.suggest_categorical('batch_size', [128, 256]),
+            'dropout':      trial.suggest_float('dropout', 0.3, 0.6),
+            'repr_dim':     trial.suggest_categorical('repr_dim', [8, 16, 32, 64]),
+        }
+        if arch == 'mlp':
+            hps['hidden_dim'] = trial.suggest_categorical('hidden_dim', [16, 32, 64])
+        if arch in ('lstm', 'lstm_raw', 'cnn_lstm', 'cnn_lstm_raw'):
+            hps['lstm_hidden'] = trial.suggest_categorical('lstm_hidden', [8, 16, 32, 64])
+            hps['lstm_layers'] = 1
+        if arch in ('tcn', 'tcn_raw'):
+            hps['tcn_kernel'] = trial.suggest_categorical('tcn_kernel', [3, 5])
+        return hps
+
     hps = {
         'lr':           trial.suggest_float('lr', 1e-4, 5e-3, log=True),
         'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True),
@@ -176,7 +200,8 @@ def run_one_cv(arch: str, variant: str, dataset, folds, seeds, hps,
                 epochs, num_workers, out_dir: Path,
                 use_uncertainty: bool,
                 enabled_tasks: list = None,
-                target_modes: dict = None):
+                target_modes: dict = None,
+                save_checkpoint: bool = True):
     """One pass of run_cv with given HPs."""
     cls = (RAW_REGISTRY if variant == 'raw' else FEAT_REGISTRY)[arch]
     factory = build_factory(cls, variant, dataset, hps)
@@ -187,6 +212,7 @@ def run_one_cv(arch: str, variant: str, dataset, folds, seeds, hps,
         patience=hps.get('_patience', 5),
         mixed_precision=True, num_workers=num_workers,
         use_uncertainty_weighting=use_uncertainty,
+        save_checkpoint=save_checkpoint,
     )
     if enabled_tasks is not None:
         cfg_kwargs['enabled_tasks'] = list(enabled_tasks)
@@ -208,11 +234,13 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--arch', required=True)
     p.add_argument('--variant', choices=['features', 'raw'], required=True)
-    p.add_argument('--n-trials', type=int, default=20)
-    p.add_argument('--phase1-epochs', type=int, default=30)
-    p.add_argument('--phase2-epochs', type=int, default=50)
-    p.add_argument('--phase2-seeds', type=int, nargs='+', default=[42, 1337, 7])
-    p.add_argument('--patience', type=int, default=5,
+    p.add_argument('--n-trials', type=int, default=50)
+    p.add_argument('--phase1-epochs', type=int, default=50)
+    p.add_argument('--phase2-epochs', type=int, default=150)
+    p.add_argument('--phase2-seeds', type=int, nargs='+', default=[42, 1337, 7],
+                   help='Default 3 seeds for variance estimation. LOSO with '
+                        '1 seed is faster but loses seed-variance info.')
+    p.add_argument('--patience', type=int, default=10,
                    help='Early-stopping patience (epochs without val improvement). '
                         'Phase 1 uses this; Phase 2 inherits it from the same flag.')
     p.add_argument('--tasks', nargs='+',
@@ -252,6 +280,11 @@ def main():
                         '(e.g. emg_ acc_ ppg_ temp_). Default: all.')
     p.add_argument('--no-uncertainty', action='store_true',
                    help='Disable uncertainty weighting (default: ON)')
+    p.add_argument('--no-tight-hps', dest='tight_hps', action='store_false',
+                   help='Use the wider Optuna search space instead of the '
+                        'default tight one. Tight (default): repr_dim<=64, '
+                        'dropout>=0.3, weight_decay>=1e-4, LSTM layers=1.')
+    p.set_defaults(tight_hps=True)
     p.add_argument('--norm-mode',
                    choices=['baseline', 'robust', 'percentile'],
                    default='baseline',
@@ -265,7 +298,10 @@ def main():
     p.add_argument('--skip-phase2', action='store_true')
     p.add_argument('--labeled-root', type=Path, default=Path('data/labeled'))
     p.add_argument('--runs-root', type=Path, default=Path('runs'))
-    p.add_argument('--splits', type=Path, default=Path('configs/splits.csv'))
+    p.add_argument('--splits', type=Path,
+                   default=Path('configs/splits_loso.csv'),
+                   help='CV splits CSV. Default: LOSO (10 folds, 1 subject per '
+                        'fold). Pass configs/splits.csv for the older 5-fold.')
     p.add_argument('--run-dir', type=Path, default=None,
                    help='Reuse this exact run dir (enables resume). If absent, '
                         'a fresh timestamped dir is created.')
@@ -376,7 +412,7 @@ def main():
             trial_log = []
 
     def objective(trial: optuna.Trial) -> float:
-        hps = suggest_hps(trial, args.arch)
+        hps = suggest_hps(trial, args.arch, tight=args.tight_hps)
         hps['_patience'] = args.patience
         trial_dir = run_dir / 'phase1' / f"trial_{trial.number:03d}"
         # Per-trial cache: if cv_summary already exists, reuse the score.
@@ -397,6 +433,7 @@ def main():
                 num_workers=args.num_workers, out_dir=trial_dir,
                 use_uncertainty=use_uncertainty,
                 enabled_tasks=args.tasks, target_modes=target_modes,
+                save_checkpoint=False,
             )
             score = score_summary(summary, enabled_tasks=args.tasks)
             elapsed = time.time() - t0
@@ -444,7 +481,8 @@ def main():
 
     best_hps = study.best_params
     # Re-merge any architecture defaults that weren't sampled in this study
-    sample = suggest_hps(optuna.trial.FixedTrial({**best_hps}), args.arch)
+    sample = suggest_hps(optuna.trial.FixedTrial({**best_hps}), args.arch,
+                          tight=args.tight_hps)
     best_hps_full = {**sample, **best_hps}
 
     print(f"[optuna] BEST: {study.best_value:.4f} with {best_hps_full}")
@@ -478,6 +516,57 @@ def main():
     p2_elapsed = time.time() - t_start_p2
     print(f"[optuna] Phase 2 complete in {p2_elapsed/60:.1f} min")
     print(json.dumps(summary, indent=2))
+
+    # ---- Pick best fold (lowest val_total) and copy checkpoint to top-level
+    # so a single deployable model is available without digging through the
+    # phase2/<arch>/seed_*/fold_* tree. Includes metadata about which subject
+    # was held out and per-task scores at that fold.
+    import shutil
+    best_fold = None
+    best_score = float('inf')
+    for fold_dir in p2_dir.rglob('fold_*'):
+        m_path = fold_dir / 'metrics.json'
+        ckpt = fold_dir / 'checkpoint_best.pt'
+        if not (m_path.exists() and ckpt.exists()):
+            continue
+        m = json.loads(m_path.read_text())
+        score = m.get('val_total')
+        if score is None:
+            continue
+        if score < best_score:
+            best_score = float(score)
+            best_fold = (fold_dir, m, ckpt)
+
+    if best_fold is not None:
+        fold_dir, m, ckpt = best_fold
+        target = run_dir / 'best_model.pt'
+        shutil.copy2(ckpt, target)
+        meta = {
+            'best_fold_dir': str(fold_dir.relative_to(run_dir)),
+            'val_total': best_score,
+            'test_subjects': m.get('test_subjects', []),
+            'metrics': {k: m.get(k) for k in ('exercise', 'phase', 'fatigue',
+                                               'reps') if k in m},
+            'arch': args.arch, 'variant': args.variant,
+            'window_s': args.window_s,
+            'tight_hps': args.tight_hps,
+            'best_hps': best_hps_full,
+        }
+        (run_dir / 'best_model_meta.json').write_text(
+            json.dumps(meta, indent=2, default=_jsonable))
+        print(f"[optuna] Best fold: {fold_dir.relative_to(run_dir)}  "
+              f"val_total={best_score:.4f}  "
+              f"test={m.get('test_subjects', '?')}")
+        print(f"[optuna] Wrote {target} + best_model_meta.json")
+
+
+def _jsonable(o):
+    import numpy as _np
+    if isinstance(o, (_np.floating, _np.integer)):
+        return o.item()
+    if isinstance(o, _np.ndarray):
+        return o.tolist()
+    return str(o)
 
 
 if __name__ == '__main__':

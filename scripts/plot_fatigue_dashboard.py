@@ -1,13 +1,12 @@
 """Compact fatigue dashboard — one or all sets of an exercise.
 
-Four stacked panels per set, sharing time axis:
+Three stacked panels per set, sharing time axis:
   1. EMG MNF (Hz)         — drops with localized muscle fatigue (De Luca 1984; Cifrek 2009)
   2. EMG MDF (Hz)          — drops alongside MNF; less sensitive to noise (Cifrek 2009)
-  3. EMG RMS (V)          — rises as motor unit recruitment increases (Vøllestad 1997)
-  4. Acc RMS (g)          — drops as bar/limb velocity drops near failure (González-Badillo 2010)
+  3. Acc RMS (g)          — drops as bar/limb velocity drops near failure (González-Badillo 2010)
 
-Each panel: raw + light smoothing, linear trend over the active set,
-arrow + Δ% from start to end. Rep markers shown as vertical dashed lines.
+Each panel: raw + light smoothing, linear trend over the active set, and a
+Δ% box from start to end of the set. Rep markers shown as vertical dashed lines.
 
 Single set:
     python scripts/plot_fatigue_dashboard.py --recording 014 --set 1
@@ -48,7 +47,7 @@ def _smooth(y: np.ndarray, window: int = 11) -> np.ndarray:
 
 
 def _metric_specs(use_rel: bool) -> list[dict]:
-    """Four fatigue panels. Top two = frequency-domain (canonical fatigue signals)."""
+    """Three fatigue panels. EMG RMS dropped — MNF/MDF carry the fatigue signal."""
     return [
         {
             "col": "emg_mnf_rel" if use_rel else "emg_mnf",
@@ -65,13 +64,6 @@ def _metric_specs(use_rel: bool) -> list[dict]:
             "expect_dir": "down",  # drop = fatigue
         },
         {
-            "col": "emg_rms_rel" if use_rel else "emg_rms",
-            "label": "EMG RMS" + (" (rel)" if use_rel else " (V)"),
-            "color": "#C0392B",
-            "unit": "" if use_rel else "V",
-            "expect_dir": "up",  # rise = recruitment
-        },
-        {
             "col": "acc_rms",
             "label": "Acc RMS (g)",
             "color": "#54A24B",
@@ -81,13 +73,11 @@ def _metric_specs(use_rel: bool) -> list[dict]:
     ]
 
 
-def _draw_panel(ax, t_full, y_full, t_active, y_active, spec, *,
-                show_xlabel: bool, show_ylabel: bool) -> dict:
+def _draw_panel(ax, t_full, y_full, t_active, y_active, spec) -> dict:
     ax.plot(t_full, y_full, color=spec["color"], linewidth=0.8, alpha=0.35)
     ax.plot(t_full, _smooth(y_full, window=11), color=spec["color"],
             linewidth=1.5, alpha=0.95)
 
-    # Trend line — drawn without a legend entry, slope value not shown
     mask = ~np.isnan(y_active)
     fit = {"slope": np.nan, "pct": np.nan}
     if mask.sum() >= 3:
@@ -103,24 +93,18 @@ def _draw_panel(ax, t_full, y_full, t_active, y_active, spec, *,
         trend_color = "#2E7D32" if matches else "#B71C1C"
         ax.plot([ta[0], ta[-1]], [y_start, y_end],
                 color=trend_color, linewidth=2.0, linestyle="--", zorder=4)
-        # Inline Δ% annotation only — no slope value
         ax.annotate(
             f"Δ {pct:+.1f}%",
             xy=(0.98, 0.94), xycoords="axes fraction",
-            ha="right", va="top", fontsize=10, fontweight="bold",
+            ha="right", va="top", fontsize=16, fontweight="bold",
             color=trend_color,
-            bbox=dict(boxstyle="round,pad=0.25", facecolor="white",
-                      edgecolor=trend_color, linewidth=1.0, alpha=0.92),
+            bbox=dict(boxstyle="round,pad=0.35", facecolor="white",
+                      edgecolor=trend_color, linewidth=1.2, alpha=0.92),
         )
         fit = {"slope": slope, "pct": pct}
 
-    if show_ylabel:
-        ax.set_ylabel(spec["label"])
-    if show_xlabel:
-        ax.set_xlabel("Session time (s)")
-    else:
-        plt.setp(ax.get_xticklabels(), visible=False)
-    ax.grid(alpha=0.3)
+    ax.tick_params(axis="y", labelsize=11)
+    ax.grid(False)
     return fit
 
 
@@ -144,7 +128,7 @@ def _set_window(df: pd.DataFrame, set_number: int, pad_s: float):
 def plot_dashboard_set(recording_id: str, set_number: int,
                        pad_s: float = 2.0, use_rel: bool = False) -> Path:
     df = load_window_features(recording_id)
-    set_rows, win, t_start, t_end, exercise, rpe = _set_window(df, set_number, pad_s)
+    set_rows, win, t_start, t_end, exercise, _ = _set_window(df, set_number, pad_s)
     specs = _metric_specs(use_rel)
 
     n_panels = len(specs)
@@ -164,19 +148,19 @@ def plot_dashboard_set(recording_id: str, set_number: int,
             t_active=set_rows["t_session_s"].to_numpy(),
             y_active=set_rows[spec["col"]].to_numpy(),
             spec=spec,
-            show_xlabel=(i == len(axes) - 1),
-            show_ylabel=True,
         )
+        ax.set_ylabel(spec["label"], fontsize=14, fontweight="bold",
+                      color=spec["color"])
+        if i == len(axes) - 1:
+            ax.set_xlabel("Tid (s)", fontsize=14)
+            ax.tick_params(axis="x", labelsize=12)
+        else:
+            plt.setp(ax.get_xticklabels(), visible=False)
         fits.append(fit)
 
-    fig.suptitle(
-        f"Recording {recording_id} — {exercise} — Set {set_number} "
-        f"(RPE {rpe}, {len(rep_times)} reps): fatigue dashboard"
-        + (" (baseline-normalized EMG)" if use_rel else ""),
-        fontsize=11,
-    )
+    fig.suptitle(f"Recording {recording_id} — {exercise}", fontsize=20)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    despine(fig=fig, left=True)
+    despine(fig=fig)
 
     out_dir = Path(f"inspections/recording_{recording_id}")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -207,7 +191,6 @@ def plot_dashboard_exercise(recording_id: str, exercise: str,
     if n == 1:
         axes = axes.reshape(n_rows, 1)
 
-    summary_lines = []
     for col_idx, set_n in enumerate(set_numbers):
         set_rows, win, t_start, t_end, _, rpe = _set_window(df, set_n, pad_s)
         rep_times = load_rep_times(recording_id, set_n)
@@ -217,58 +200,30 @@ def plot_dashboard_exercise(recording_id: str, exercise: str,
             ax.axvspan(t_start, t_end, color="#4C78A8", alpha=0.10, zorder=0)
             for rt in rep_times:
                 ax.axvline(rt, color="#888", linestyle="--", linewidth=0.6, alpha=0.5)
-            fit = _draw_panel(
+            _draw_panel(
                 ax,
                 t_full=win["t_session_s"].to_numpy(),
                 y_full=win[spec["col"]].to_numpy(),
                 t_active=set_rows["t_session_s"].to_numpy(),
                 y_active=set_rows[spec["col"]].to_numpy(),
                 spec=spec,
-                show_xlabel=(row_idx == n_rows - 1),
-                show_ylabel=(col_idx == 0),
             )
             ax.set_xlim(t_start - pad_s, t_end + pad_s)
             if row_idx == 0:
-                ax.set_title(f"Set {set_n} • RPE {rpe} • {len(rep_times)} reps",
-                             fontsize=10,
+                ax.set_title(f"RPE {rpe}", fontsize=18, fontweight="bold",
                              color=EXERCISE_COLORS.get(exercise, "#222"))
             if col_idx == 0:
-                ax.set_ylabel(spec["label"])
-            if row_idx == 0 and col_idx == 0:
-                summary_lines.append(set_n)
-            # Collect Δ% for the suptitle
-            if col_idx == 0 and row_idx == 0:
-                pass
+                ax.set_ylabel(spec["label"], fontsize=14, fontweight="bold",
+                              color=spec["color"])
+            if row_idx == n_rows - 1:
+                ax.set_xlabel("Tid (s)", fontsize=14)
+                ax.tick_params(axis="x", labelsize=12)
+            else:
+                plt.setp(ax.get_xticklabels(), visible=False)
 
-    # Build suptitle Δ% summary across sets per metric
-    summary_per_metric = {spec["label"]: [] for spec in specs}
-    for set_n in set_numbers:
-        set_rows = df[df["set_number"] == float(set_n)]
-        for spec in specs:
-            t_a = set_rows["t_session_s"].to_numpy()
-            y_a = set_rows[spec["col"]].to_numpy()
-            mask = ~np.isnan(y_a)
-            if mask.sum() < 3:
-                summary_per_metric[spec["label"]].append("nan")
-                continue
-            slope, intercept = np.polyfit(t_a[mask], y_a[mask], 1)
-            y0 = intercept + slope * t_a[mask][0]
-            y1 = intercept + slope * t_a[mask][-1]
-            pct = 100.0 * (y1 - y0) / y0 if y0 else np.nan
-            summary_per_metric[spec["label"]].append(f"{pct:+.1f}%")
-
-    sum_str = " | ".join(
-        f"{name}: " + " → ".join(vals)
-        for name, vals in summary_per_metric.items()
-    )
-    fig.suptitle(
-        f"Recording {recording_id} — {exercise}: fatigue dashboard across {n} sets"
-        + (" (baseline-normalized EMG)" if use_rel else "")
-        + f"\nΔ% per set (S{set_numbers[0]}…S{set_numbers[-1]}):  {sum_str}",
-        fontsize=10,
-    )
-    fig.tight_layout(rect=(0, 0, 1, 0.93))
-    despine(fig=fig, left=True)
+    fig.suptitle(f"Recording {recording_id} — {exercise}", fontsize=20)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    despine(fig=fig)
 
     out_dir = Path(f"inspections/recording_{recording_id}")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -277,7 +232,6 @@ def plot_dashboard_exercise(recording_id: str, exercise: str,
     fig.savefig(out_path, dpi=140)
     plt.close(fig)
     print(f"Saved: {out_path}")
-    print("Per-set delta-%: " + sum_str.replace("Δ", "d").replace("→", "->"))
     return out_path
 
 

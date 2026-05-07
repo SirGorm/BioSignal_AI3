@@ -104,6 +104,10 @@ class TrainConfig:
     mixed_precision: bool = True
     num_workers: int = 4
     use_uncertainty_weighting: bool = True
+    # When False, skip torch.save of checkpoint_best.pt and test_preds.pt
+    # per fold. Useful for Optuna phase 1 trials (250+ disposable runs)
+    # where the .pt files are never used. Phase 2 should leave this True.
+    save_checkpoint: bool = True
     loss_weights: Dict[str, float] = field(default_factory=lambda: {
         'exercise': 1.0, 'phase': 1.0, 'fatigue': 1.0, 'reps': 0.5
     })
@@ -331,17 +335,19 @@ def train_one_fold(
     }
 
     # Persist
-    torch.save({'state_dict': best_state, 'config': cfg.__dict__},
-                out_dir / 'checkpoint_best.pt')
+    if cfg.save_checkpoint:
+        torch.save({'state_dict': best_state, 'config': cfg.__dict__},
+                    out_dir / 'checkpoint_best.pt')
     with open(out_dir / 'history.json', 'w') as f:
         json.dump(history, f, indent=2, default=str)
     with open(out_dir / 'metrics.json', 'w') as f:
         json.dump(final_metrics, f, indent=2, default=_jsonable)
 
     # Save raw preds for later analysis
-    torch.save({'preds': preds, 'targets': targets, 'masks': masks,
-                 'test_idx': test_idx},
-                out_dir / 'test_preds.pt')
+    if cfg.save_checkpoint:
+        torch.save({'preds': preds, 'targets': targets, 'masks': masks,
+                     'test_idx': test_idx},
+                    out_dir / 'test_preds.pt')
 
     return history, final_metrics
 
