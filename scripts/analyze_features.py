@@ -50,7 +50,14 @@ def main():
     print(f"[analyze] Output: {out_dir}")
 
     win_paths = find_window_feature_files(args.labeled_root)
-    dataset = WindowFeatureDataset(window_parquets=win_paths, active_only=True)
+    # Use hard target modes for analysis: LDA/ANOVA/MI need scalar labels.
+    # Soft phase targets (probability vectors) and soft reps targets are
+    # equivalent for ranking purposes — argmax/expectation gives the same
+    # ordering. Hard mode keeps shapes 1D so the analysis code stays simple.
+    dataset = WindowFeatureDataset(
+        window_parquets=win_paths, active_only=True,
+        target_modes={'reps': 'hard', 'phase': 'hard'},
+    )
     print(f"[analyze] {len(dataset)} windows × {dataset.n_features} features")
 
     X = dataset.X.numpy()

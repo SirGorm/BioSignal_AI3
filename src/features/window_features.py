@@ -357,7 +357,10 @@ def _build_set_features(window_df: pd.DataFrame, normalizer: EmgBaselineNormaliz
             "set_number": set_num,
             "exercise": grp["exercise"].iloc[0],
             "rpe_for_this_set": grp["rpe_for_this_set"].iloc[0],
-            "n_reps": int(grp["rep_count_in_set"].max()) if "rep_count_in_set" in grp else np.nan,
+            "n_reps": (int(grp["rep_count_in_set"].max())
+                        if "rep_count_in_set" in grp
+                           and pd.notna(grp["rep_count_in_set"].max())
+                        else 0),
             "set_duration_s": float(
                 grp["t_session_s"].max() - grp["t_session_s"].min()
             ),
