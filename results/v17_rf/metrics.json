@@ -1,0 +1,171 @@
+{
+  "run": "20260427_110653_default",
+  "cv_scheme": "GroupKFold-5 (subject-wise LOSO)",
+  "n_subjects": 9,
+  "fatigue": {
+    "task": "rpe_regression",
+    "method": "RandomForestRegressor (criterion=absolute_error)",
+    "metric_primary": "MAE",
+    "mae_mean": 0.992551990493167,
+    "mae_std": 0.2082747840870339,
+    "mae_per_fold": [
+      1.3149509803921566,
+      1.1917016806722687,
+      1.044467787114846,
+      0.6512605042016807,
+      0.7895658263305321,
+      1.0133053221288517,
+      0.693627450980392,
+      0.9719251336898396,
+      1.1676470588235293,
+      1.0870681605975723
+    ],
+    "pearson_r_per_subj": {
+      "Vivian": 0.13826466186101508,
+      "Hytten": -0.4353860543325354,
+      "sivert": 0.7628874974556047,
+      "michael": 0.49907800855215095,
+      "lucas": -0.018642462709799336,
+      "kiyomi": 0.24095547188779928,
+      "lucas 2": 0.9138717770483731,
+      "Tias": 0.8227671441487678,
+      "Juile": -0.1727042374311292,
+      "Raghild": 0.030961979283722154
+    },
+    "pearson_r_median": 0.18961006687440718,
+    "baseline_mae": 1.013,
+    "beats_baseline": true,
+    "per_subject_mae": {
+      "Raghild": 1.3149509803921566,
+      "Juile": 1.1917016806722687,
+      "Tias": 1.044467787114846,
+      "lucas 2": 0.6512605042016807,
+      "kiyomi": 0.7895658263305321,
+      "sivert": 1.0133053221288517,
+      "Vivian": 0.693627450980392,
+      "Hytten": 0.9719251336898396,
+      "michael": 1.1676470588235293,
+      "lucas": 1.0870681605975723
+    },
+    "worst_subject": "Raghild",
+    "worst_subject_mae": 1.3149509803921566,
+    "outlier_flag": false,
+    "optuna_best_params": {
+      "n_estimators": 238,
+      "max_depth": 9,
+      "min_samples_split": 11,
+      "min_samples_leaf": 1,
+      "max_features": "sqrt"
+    }
+  },
+  "exercise": {
+    "task": "exercise_classification",
+    "method": "RandomForestClassifier (multiclass, class_weight=balanced)",
+    "metric_primary": "F1-macro",
+    "f1_mean": 0.568983895740142,
+    "f1_std": 0.13772918487621813,
+    "f1_per_fold": [
+      0.25762968584653234,
+      0.6371225348055408,
+      0.4368171837010283,
+      0.5985444197034009,
+      0.6358646548176223,
+      0.7528374863088719,
+      0.6291352773557105,
+      0.7065095457079151,
+      0.5606897476696477,
+      0.47468842148514917
+    ],
+    "classes": [
+      "benchpress",
+      "deadlift",
+      "pullup",
+      "squat"
+    ],
+    "baseline_f1": 0.123,
+    "beats_baseline_by_0.20": true,
+    "per_subject_f1": {
+      "Vivian": 0.25762968584653234,
+      "lucas 2": 0.6371225348055408,
+      "Raghild": 0.4368171837010283,
+      "kiyomi": 0.5985444197034009,
+      "Juile": 0.6358646548176223,
+      "sivert": 0.7528374863088719,
+      "michael": 0.6291352773557105,
+      "Tias": 0.7065095457079151,
+      "lucas": 0.5606897476696477,
+      "Hytten": 0.47468842148514917
+    },
+    "optuna_best_params": {
+      "n_estimators": 382,
+      "max_depth": 5,
+      "min_samples_split": 15,
+      "min_samples_leaf": 5,
+      "max_features": "log2"
+    }
+  },
+  "phase": {
+    "task": "phase_classification",
+    "state_machine_f1": 0.287991755545551,
+    "state_machine_threshold": 0.85,
+    "deployed_method": "RandomForestClassifier",
+    "ml_f1_mean": 0.485952254044954,
+    "ml_f1_std": 0.02720336873016082,
+    "ml_f1_per_fold": [
+      0.4637886156052246,
+      0.5331472369192498,
+      0.49484755772714123,
+      0.496776002242781,
+      0.44516690856313496,
+      0.4531375703942076,
+      0.51291627762216,
+      0.4730285034853563,
+      0.5126101302854033,
+      0.4741037376048818
+    ],
+    "classes": [
+      "concentric",
+      "eccentric"
+    ],
+    "baseline_f1": 0.186,
+    "beats_baseline": true,
+    "optuna_best_params": {
+      "n_estimators": 307,
+      "max_depth": 16,
+      "min_samples_split": 3,
+      "min_samples_leaf": 4,
+      "max_features": 0.5
+    }
+  },
+  "reps": {
+    "task": "rep_counting",
+    "state_machine_mae": 4.301060606060607,
+    "state_machine_threshold": 0.85,
+    "deployed_method": "RandomForestRegressor",
+    "ml_mae_mean": 2.604349887766554,
+    "ml_mae_std": 0.8641371202430793,
+    "ml_mae_per_fold": [
+      3.5053240740740734,
+      1.7331018518518515,
+      1.0296296296296295,
+      3.1212962962962965,
+      2.2247685185185184,
+      3.546527777777778,
+      3.701388888888888,
+      1.908838383838384,
+      3.0991666666666666,
+      2.1734567901234563
+    ],
+    "ml_exact_pct": 21.052631578947366,
+    "ml_within1_pct": 40.35087719298245,
+    "baseline_mae": 1.291,
+    "beats_baseline": false,
+    "optuna_best_params": {
+      "n_estimators": 180,
+      "max_depth": 3,
+      "min_samples_split": 9,
+      "min_samples_leaf": 2,
+      "max_features": "sqrt"
+    }
+  }
+}

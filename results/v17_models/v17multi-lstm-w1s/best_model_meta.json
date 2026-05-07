@@ -1,0 +1,40 @@
+{
+  "best_fold_dir": "phase2\\lstm\\seed_42\\fold_8",
+  "val_total": -0.9520390111918111,
+  "test_subjects": [],
+  "metrics": {
+    "exercise": {
+      "f1_macro": 0.354381745047353,
+      "balanced_accuracy": 0.39272828317373465,
+      "n": 747
+    },
+    "phase": {
+      "f1_macro": 0.33282231835454373,
+      "balanced_accuracy": 0.49949415225658317,
+      "n": 747
+    },
+    "fatigue": {
+      "mae": 0.829463688085676,
+      "pearson_r": 0.04558728548668273,
+      "n": 747
+    },
+    "reps": {
+      "mae": 0.10809622437554789,
+      "n": 747
+    }
+  },
+  "arch": "lstm",
+  "variant": "features",
+  "window_s": 1.0,
+  "tight_hps": true,
+  "best_hps": {
+    "lr": 0.002469645860806916,
+    "weight_decay": 0.0009555267918374677,
+    "batch_size": 128,
+    "dropout": 0.32470612581272046,
+    "repr_dim": 16,
+    "lstm_hidden": 32,
+    "lstm_layers": 1,
+    "_patience": 10
+  }
+}

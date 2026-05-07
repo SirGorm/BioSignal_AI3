@@ -60,6 +60,9 @@ _p.add_argument("--stride", type=int, default=100,
                 help="Decimate window_features per recording to this stride. "
                      "100 = 1 s hop on the 100 Hz feature grid (matches raw NN "
                      "2 s window @ 50%% overlap). 1 = no decimation.")
+_p.add_argument("--n-folds", type=int, default=5,
+                help="Number of CV folds for GroupKFold. 5 (default) = "
+                     "v15-style 5-fold; 10 = LOSO when there are 10 subjects.")
 _args, _ = _p.parse_known_args()
 
 ROOT = Path("C:/Users/skogl/Downloads/eirikgsk/biosignal_2/BioSignal_AI3")
@@ -103,8 +106,9 @@ rec_to_int = {r: i for i, r in enumerate(sorted(wf["recording_id"].unique()))}
 wf_groups = wf["recording_id"].map(rec_to_int).values
 sf_groups = sf["recording_id"].map(rec_to_int).values
 
-N_FOLDS = 5
+N_FOLDS = int(_args.n_folds)
 gkf = GroupKFold(n_splits=N_FOLDS)
+print(f"  N_FOLDS={N_FOLDS}  ({'LOSO' if N_FOLDS == 10 else f'{N_FOLDS}-fold GroupKFold'})")
 
 # ─────────────────────────────── helpers ──────────────────────────────────────
 # For fatigue: keep set_number and n_reps as features (scientifically valid predictors

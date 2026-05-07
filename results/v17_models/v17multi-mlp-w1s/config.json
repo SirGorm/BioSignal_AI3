@@ -1,0 +1,14 @@
+{
+  "arch": "mlp",
+  "variant": "features",
+  "n_trials": 50,
+  "phase1_epochs": 50,
+  "phase2_epochs": 150,
+  "phase2_seeds": [
+    42,
+    1337,
+    7
+  ],
+  "num_workers": 2,
+  "use_uncertainty": true
+}

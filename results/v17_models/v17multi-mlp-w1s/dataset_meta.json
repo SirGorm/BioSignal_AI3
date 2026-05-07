@@ -1,0 +1,42 @@
+{
+  "arch": "mlp",
+  "variant": "features",
+  "exercise_classes": [
+    "benchpress",
+    "deadlift",
+    "pullup",
+    "squat"
+  ],
+  "phase_classes": [
+    "concentric",
+    "eccentric",
+    "unknown"
+  ],
+  "feature_cols": [
+    "rep_density_hz",
+    "emg_rms",
+    "emg_iemg",
+    "emg_mnf",
+    "emg_mdf",
+    "emg_dimitrov",
+    "emg_mnf_rel",
+    "emg_mdf_rel",
+    "emg_rms_rel",
+    "emg_dimitrov_rel",
+    "emg_iemg_rel",
+    "acc_rms",
+    "acc_jerk_rms",
+    "acc_dom_freq",
+    "acc_rep_band_power",
+    "acc_rep_band_ratio",
+    "ppg_hr",
+    "ppg_pulse_amp",
+    "ppg_pulse_amp_var",
+    "temp_mean",
+    "temp_slope",
+    "temp_range",
+    "temp_mean_rel",
+    "t_window_center_s"
+  ],
+  "n_features": 24
+}

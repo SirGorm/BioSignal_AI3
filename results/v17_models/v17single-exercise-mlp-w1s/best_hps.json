@@ -1,0 +1,12 @@
+{
+  "best_score": 0.48724285566120723,
+  "best_hps": {
+    "lr": 0.002793665688875044,
+    "weight_decay": 0.00997302684768142,
+    "batch_size": 128,
+    "dropout": 0.4122545821282005,
+    "repr_dim": 8,
+    "hidden_dim": 64
+  },
+  "phase1_elapsed_s": 4878.468364715576
+}

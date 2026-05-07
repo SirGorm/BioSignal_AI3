@@ -1,0 +1,39 @@
+{
+  "best_fold_dir": "phase2\\mlp\\seed_1337\\fold_5",
+  "val_total": -1.0528739204466593,
+  "test_subjects": [],
+  "metrics": {
+    "exercise": {
+      "f1_macro": 0.6881216447166963,
+      "balanced_accuracy": 0.6873868348324566,
+      "n": 717
+    },
+    "phase": {
+      "f1_macro": 0.3116381167851756,
+      "balanced_accuracy": 0.3585597826086957,
+      "n": 667
+    },
+    "fatigue": {
+      "mae": 1.0684274755927476,
+      "pearson_r": 0.40102350524374225,
+      "n": 717
+    },
+    "reps": {
+      "mae": 0.11584790826291966,
+      "n": 665
+    }
+  },
+  "arch": "mlp",
+  "variant": "features",
+  "window_s": 1.0,
+  "tight_hps": true,
+  "best_hps": {
+    "lr": 0.0024046541719757414,
+    "weight_decay": 0.0002181476167250017,
+    "batch_size": 128,
+    "dropout": 0.4030055322691992,
+    "repr_dim": 64,
+    "hidden_dim": 32,
+    "_patience": 10
+  }
+}
