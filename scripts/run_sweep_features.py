@@ -184,7 +184,7 @@ class JobQueue:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_optuna_cmd(arch, mode, w, n_trials, top_features,
-                      seed_hps_from, run_dir):
+                      seed_hps_from, run_dir, reps_mode, phase_mode):
     cmd = [
         sys.executable, 'scripts/train_optuna.py',
         '--arch', arch, '--variant', 'features',
@@ -195,6 +195,8 @@ def build_optuna_cmd(arch, mode, w, n_trials, top_features,
         '--window-s', str(w),
         '--splits', str(SPLITS),
         '--exercise-aggregation', 'both',
+        '--reps-mode', reps_mode,
+        '--phase-mode', phase_mode,
         '--wide-arch-search',
         '--repr-dim-choices', '16', '32', '64',
         '--feature-cols', *top_features,
@@ -207,7 +209,7 @@ def build_optuna_cmd(arch, mode, w, n_trials, top_features,
 
 
 def build_phase2_cmd(arch, mode, w, seed, top_features,
-                      src_run_dir, out_run_dir):
+                      src_run_dir, out_run_dir, reps_mode, phase_mode):
     cmd = [
         sys.executable, 'scripts/train_phase2_only.py',
         '--arch', arch, '--variant', 'features',
@@ -220,6 +222,8 @@ def build_phase2_cmd(arch, mode, w, seed, top_features,
         '--window-s', str(w),
         '--splits', str(SPLITS),
         '--exercise-aggregation', 'both',
+        '--reps-mode', reps_mode,
+        '--phase-mode', phase_mode,
     ]
     # train_phase2_only.py uses --feature-prefixes (startswith match). The
     # exact column names also work as prefixes when none of the chosen
@@ -337,6 +341,12 @@ def main():
     ap.add_argument('--seeds', type=int, nargs='+', default=SEEDS)
     ap.add_argument('--skip-lda', action='store_true',
                      help='Skip LDA selection; assume top-15 JSON exists')
+    ap.add_argument('--reps-mode',
+                     choices=['hard', 'soft_window', 'soft_overlap'],
+                     default='soft_overlap',
+                     help='Reps target representation. Default soft_overlap '
+                          '(Wang et al. 2026, Eq. 2).')
+    ap.add_argument('--phase-mode', choices=['hard', 'soft'], default='soft')
     args = ap.parse_args()
 
     base_w = args.windows[0]
@@ -366,7 +376,9 @@ def main():
                 continue
             cmd = build_optuna_cmd(arch, mode, base_w, n_trials=100,
                                     top_features=top_features,
-                                    seed_hps_from=None, run_dir=rd)
+                                    seed_hps_from=None, run_dir=rd,
+                                    reps_mode=args.reps_mode,
+                                    phase_mode=args.phase_mode)
             log = LOG_DIR / f"A_{arch}__{mode}__w{int(base_w)}s.log"
             label = f"A {arch}/{mode}/w{int(base_w)}s"
             if args.dry_run:
@@ -393,7 +405,9 @@ def main():
                     continue
                 cmd = build_optuna_cmd(arch, mode, w, n_trials=20,
                                         top_features=top_features,
-                                        seed_hps_from=base_hps, run_dir=rd)
+                                        seed_hps_from=base_hps, run_dir=rd,
+                                        reps_mode=args.reps_mode,
+                                        phase_mode=args.phase_mode)
                 log = LOG_DIR / f"B_{arch}__{mode}__w{int(w)}s.log"
                 label = f"B {arch}/{mode}/w{int(w)}s"
                 if args.dry_run:
@@ -419,7 +433,9 @@ def main():
                         print(f"[skip] phase 2 done: {out}")
                         continue
                     cmd = build_phase2_cmd(arch, mode, w, seed, top_features,
-                                            src, out)
+                                            src, out,
+                                            reps_mode=args.reps_mode,
+                                            phase_mode=args.phase_mode)
                     log = LOG_DIR / f"C_{arch}__{mode}__w{int(w)}s__s{seed}.log"
                     label = f"C {arch}/{mode}/w{int(w)}s/seed{seed}"
                     if args.dry_run:

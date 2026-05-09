@@ -116,7 +116,8 @@ class JobQueue:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_optuna_cmd(arch: str, mode: str, window_s: float, n_trials: int,
-                      seed_hps_from: Path | None, run_dir: Path) -> list[str]:
+                      seed_hps_from: Path | None, run_dir: Path,
+                      reps_mode: str, phase_mode: str) -> list[str]:
     cmd = [
         sys.executable, 'scripts/train_optuna.py',
         '--arch', arch, '--variant', 'raw',
@@ -127,6 +128,8 @@ def build_optuna_cmd(arch: str, mode: str, window_s: float, n_trials: int,
         '--window-s', str(window_s),
         '--splits', str(SPLITS),
         '--exercise-aggregation', 'both',
+        '--reps-mode', reps_mode,
+        '--phase-mode', phase_mode,
         '--wide-arch-search',
         '--repr-dim-choices', '64', '128', '256',
         '--skip-phase2',
@@ -138,7 +141,8 @@ def build_optuna_cmd(arch: str, mode: str, window_s: float, n_trials: int,
 
 
 def build_phase2_cmd(arch: str, mode: str, window_s: float, seed: int,
-                      src_run_dir: Path, out_run_dir: Path) -> list[str]:
+                      src_run_dir: Path, out_run_dir: Path,
+                      reps_mode: str, phase_mode: str) -> list[str]:
     return [
         sys.executable, 'scripts/train_phase2_only.py',
         '--arch', arch, '--variant', 'raw',
@@ -151,6 +155,8 @@ def build_phase2_cmd(arch: str, mode: str, window_s: float, seed: int,
         '--window-s', str(window_s),
         '--splits', str(SPLITS),
         '--exercise-aggregation', 'both',
+        '--reps-mode', reps_mode,
+        '--phase-mode', phase_mode,
     ]
 
 
@@ -265,6 +271,14 @@ def main():
     ap.add_argument('--windows', type=float, nargs='+', default=WINDOWS,
                      help=f'First entry is base. Default: {WINDOWS}')
     ap.add_argument('--seeds', type=int, nargs='+', default=SEEDS)
+    ap.add_argument('--reps-mode',
+                     choices=['hard', 'soft_window', 'soft_overlap'],
+                     default='soft_overlap',
+                     help='Reps target representation. Default soft_overlap '
+                          '(Wang et al. 2026, Eq. 2). Requires '
+                          'soft_overlap_reps_<W>s columns — generate via '
+                          'scripts/add_soft_overlap_all_paths.py.')
+    ap.add_argument('--phase-mode', choices=['hard', 'soft'], default='soft')
     args = ap.parse_args()
 
     base_w = args.windows[0]
@@ -285,7 +299,9 @@ def main():
                 print(f"[skip] base done: {rd}")
                 continue
             cmd = build_optuna_cmd(arch, mode, base_w, n_trials=100,
-                                    seed_hps_from=None, run_dir=rd)
+                                    seed_hps_from=None, run_dir=rd,
+                                    reps_mode=args.reps_mode,
+                                    phase_mode=args.phase_mode)
             log = LOG_DIR / f"A_{arch}__{mode}__w{int(base_w)}s.log"
             label = f"A {arch}/{mode}/w{int(base_w)}s"
             if args.dry_run:
@@ -311,7 +327,9 @@ def main():
                     print(f"[skip] window done: {rd}")
                     continue
                 cmd = build_optuna_cmd(arch, mode, w, n_trials=20,
-                                        seed_hps_from=base_hps, run_dir=rd)
+                                        seed_hps_from=base_hps, run_dir=rd,
+                                        reps_mode=args.reps_mode,
+                                        phase_mode=args.phase_mode)
                 log = LOG_DIR / f"B_{arch}__{mode}__w{int(w)}s.log"
                 label = f"B {arch}/{mode}/w{int(w)}s"
                 if args.dry_run:
@@ -336,7 +354,9 @@ def main():
                     if next(out.rglob('cv_summary.json'), None) is not None:
                         print(f"[skip] phase 2 done: {out}")
                         continue
-                    cmd = build_phase2_cmd(arch, mode, w, seed, src, out)
+                    cmd = build_phase2_cmd(arch, mode, w, seed, src, out,
+                                            reps_mode=args.reps_mode,
+                                            phase_mode=args.phase_mode)
                     log = LOG_DIR / f"C_{arch}__{mode}__w{int(w)}s__s{seed}.log"
                     label = f"C {arch}/{mode}/w{int(w)}s/seed{seed}"
                     if args.dry_run:
