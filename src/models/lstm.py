@@ -37,9 +37,9 @@ class LSTMMultiTask(nn.Module):
         n_features: int,
         n_exercise: int,
         n_phase: int,
-        hidden: int = 64,
-        n_layers: int = 2,
-        repr_dim: int = 128,
+        hidden: int = 40,
+        n_layers: int = 1,
+        repr_dim: int = 64,
         dropout: float = 0.3,
     ):
         super().__init__()

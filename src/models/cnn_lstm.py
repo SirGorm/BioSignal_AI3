@@ -42,19 +42,20 @@ class CNNLSTMMultiTask(nn.Module):
         n_features: int,
         n_exercise: int,
         n_phase: int,
-        conv_channels: int = 64,
-        lstm_hidden: int = 64,
+        conv_first_channels: int = 16,
+        conv_channels: int = 32,
+        lstm_hidden: int = 16,
         n_lstm_layers: int = 1,
-        repr_dim: int = 128,
+        repr_dim: int = 64,
         dropout: float = 0.3,
     ):
         super().__init__()
         self.n_features = n_features
 
         self.conv = nn.Sequential(
-            nn.Conv1d(1, 32, kernel_size=5, padding=2),
-            nn.BatchNorm1d(32), nn.ReLU(), nn.Dropout(dropout),
-            nn.Conv1d(32, conv_channels, kernel_size=3, padding=1),
+            nn.Conv1d(1, conv_first_channels, kernel_size=5, padding=2),
+            nn.BatchNorm1d(conv_first_channels), nn.ReLU(), nn.Dropout(dropout),
+            nn.Conv1d(conv_first_channels, conv_channels, kernel_size=3, padding=1),
             nn.BatchNorm1d(conv_channels), nn.ReLU(), nn.Dropout(dropout),
         )
         self.lstm = nn.LSTM(

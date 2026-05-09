@@ -8,6 +8,14 @@ Features per window (500 ms, hop 100 ms):
   emg_mdf      : median power frequency (De Luca 1997)
   emg_dimitrov : FInsm5 = M(-1)/M(5), most fatigue-sensitive index in
                  dynamic contractions (Dimitrov et al. 2006)
+  emg_lscore   : log detector / L-Score = exp(mean(log|x|)), geometric mean
+                 of rectified amplitude (Phinyomark et al. 2012)
+  emg_mfl      : maximum fractal length = log10(sqrt(sum diff^2)), measures
+                 signal complexity / waveform length (Phinyomark et al. 2012)
+  emg_msr      : mean square root = (mean(sqrt|x|))^2, robust amplitude
+                 estimator (Phinyomark et al. 2012)
+  emg_wamp     : Willison amplitude = fraction of consecutive sample
+                 differences exceeding threshold (Hudgins et al. 1993)
 
 Per-set slope features (offline only, needs full set):
   emg_mnf_slope      : linear slope of MNF over set (more negative = more fatigue)
@@ -26,6 +34,8 @@ References
 - Dimitrov, G. V., Arabadzhiev, T. I., Mileva, K. N., Bowtell, J. L., Crichton, N.,
   & Dimitrova, N. A. (2006). Muscle fatigue during dynamic contractions assessed by
   new spectral indices. Medicine and Science in Sports and Exercise, 38(11), 1971-1979.
+- Hudgins, B., Parker, P., & Scott, R. N. (1993). A new strategy for multifunction
+  myoelectric control. IEEE Transactions on Biomedical Engineering, 40(1), 82-94.
 - Phinyomark, A., Phukpattaranont, P., & Limsakul, C. (2012). Feature reduction and
   selection for EMG signal classification. Expert Systems with Applications,
   39(8), 7420-7431.
@@ -46,6 +56,12 @@ from scipy.signal import welch
 FS_EMG = 2000  # Hz — verified against dataset/recording_012/metadata.json
 WINDOW_MS = 500  # ms — minimum for stable MNF/MDF (Cifrek et al. 2009)
 HOP_MS = 100
+
+# Willison amplitude threshold. Hudgins et al. 1993 originally proposed 50 µV
+# for filtered surface EMG. This dataset's filtered signal has RMS ≈ 100–300 µV
+# (verified on recordings 006/010), so 50 µV ≈ 0.25× RMS is a reasonable
+# noise-floor threshold.
+WAMP_THRESHOLD = 5e-5  # 50 µV in volts
 
 
 def _nanfill_signal(signal: np.ndarray) -> np.ndarray:
@@ -108,7 +124,8 @@ def _filter_emg_causal(signal: np.ndarray, fs: int = FS_EMG) -> np.ndarray:
     return filtered
 
 
-def emg_window_features(emg_window: np.ndarray, fs: int = FS_EMG) -> dict:
+def emg_window_features(emg_window: np.ndarray, fs: int = FS_EMG,
+                         wamp_threshold: float = WAMP_THRESHOLD) -> dict:
     """Compute EMG features for one window (already filtered).
 
     Uses Welch's PSD method (Welch 1967) with nperseg = min(256, len(window)).
@@ -117,27 +134,45 @@ def emg_window_features(emg_window: np.ndarray, fs: int = FS_EMG) -> dict:
     MNF = spectral centroid = sum(f * P(f)) / sum(P(f))  (De Luca 1997)
     MDF = frequency at which cumulative PSD reaches 50%   (De Luca 1997)
     FInsm5 = M(-1) / M(5)  where M_k = sum(f^k * P(f))   (Dimitrov et al. 2006)
+    L-Score / Log Detector = exp(mean(log|x|))            (Phinyomark et al. 2012)
+    MFL = log10(sqrt(sum diff^2))                         (Phinyomark et al. 2012)
+    MSR = (mean(sqrt|x|))^2                               (Phinyomark et al. 2012)
+    WAMP = (1/(N-1)) sum I(|x_{i+1}-x_i| > threshold)     (Hudgins et al. 1993)
 
     Parameters
     ----------
-    emg_window : 1D array of filtered EMG samples within the window.
-    fs         : Sample rate (default 2000 Hz).
+    emg_window     : 1D array of filtered EMG samples within the window.
+    fs             : Sample rate (default 2000 Hz).
+    wamp_threshold : Willison amplitude threshold in signal native units
+                     (default WAMP_THRESHOLD = 50 µV; Hudgins et al. 1993).
 
     Returns
     -------
-    dict with keys: emg_rms, emg_iemg, emg_mnf, emg_mdf, emg_dimitrov
+    dict with keys: emg_rms, emg_iemg, emg_mnf, emg_mdf, emg_dimitrov,
+                    emg_lscore, emg_mfl, emg_msr, emg_wamp
     """
-    nan_result = {k: np.nan for k in
-                  ["emg_rms", "emg_iemg", "emg_mnf", "emg_mdf", "emg_dimitrov"]}
+    feat_keys = ["emg_rms", "emg_iemg", "emg_mnf", "emg_mdf", "emg_dimitrov",
+                 "emg_lscore", "emg_mfl", "emg_msr", "emg_wamp"]
+    nan_result = {k: np.nan for k in feat_keys}
 
     if len(emg_window) < 16:
         return nan_result
 
-    # Time-domain features (De Luca 1997)
+    # Time-domain features
+    abs_x = np.abs(emg_window)
     rms = float(np.sqrt(np.mean(emg_window ** 2)))
-    iemg = float(np.sum(np.abs(emg_window)))
+    iemg = float(np.sum(abs_x))
 
-    # Welch PSD (Welch 1967)
+    # Phinyomark et al. 2012 / Hudgins et al. 1993 amplitude descriptors
+    diffs = np.abs(np.diff(emg_window))
+    wamp = float(np.sum(diffs > wamp_threshold) / max(1, len(diffs)))
+    wl_sq = float(np.sum(diffs ** 2))
+    mfl = float(np.log10(np.sqrt(wl_sq) + 1e-30))
+    msr = float(np.mean(np.sqrt(abs_x)) ** 2)
+    # max(|x|, eps) avoids -inf when a sample is exactly zero
+    lscore = float(np.exp(np.mean(np.log(np.maximum(abs_x, 1e-30)))))
+
+    # Welch PSD
     nperseg = min(256, len(emg_window))
     f, pxx = welch(emg_window, fs=fs, nperseg=nperseg)
 
@@ -150,17 +185,17 @@ def emg_window_features(emg_window: np.ndarray, fs: int = FS_EMG) -> dict:
     if total_power < 1e-20:
         return nan_result
 
-    # Mean Power Frequency — spectral centroid (De Luca 1997)
+    # Mean Power Frequency — spectral centroid
     mnf = float(np.sum(f_phys * pxx_phys) / total_power)
 
-    # Median Power Frequency (De Luca 1997)
+    # Median Power Frequency
     cum_psd = np.cumsum(pxx_phys)
     half = cum_psd[-1] / 2.0
     mdf_idx = np.searchsorted(cum_psd, half)
     mdf_idx = np.clip(mdf_idx, 0, len(f_phys) - 1)
     mdf = float(f_phys[mdf_idx])
 
-    # Dimitrov FInsm5 = M(-1) / M(5) (Dimitrov et al. 2006)
+    # Dimitrov FInsm5 = M(-1) / M(5)
     # Avoid division by zero at f=0 by using np.maximum
     M_neg1 = float(np.sum(pxx_phys / np.maximum(f_phys, 1.0)))
     M_5 = float(np.sum((f_phys ** 5) * pxx_phys))
@@ -172,6 +207,10 @@ def emg_window_features(emg_window: np.ndarray, fs: int = FS_EMG) -> dict:
         "emg_mnf": mnf,
         "emg_mdf": mdf,
         "emg_dimitrov": dimitrov,
+        "emg_lscore": lscore,
+        "emg_mfl": mfl,
+        "emg_msr": msr,
+        "emg_wamp": wamp,
     }
 
 
@@ -186,6 +225,10 @@ class EmgBaselineNormalizer:
     transients at session start (Phinyomark et al. 2012).
     """
 
+    # Only ratio-stable features get _rel: positive-valued with non-trivial
+    # baseline. The 4 Phinyomark/Hudgins features (lscore, mfl, msr, wamp)
+    # have baseline values near zero or negative (log-scaled), which makes
+    # v / bmed unstable or meaningless — they enter the model as raw values.
     _KEYS = ("emg_mnf", "emg_mdf", "emg_rms", "emg_dimitrov", "emg_iemg")
 
     def __init__(self) -> None:

@@ -24,6 +24,7 @@ References:
 """
 
 from __future__ import annotations
+from typing import Sequence
 
 import torch
 import torch.nn as nn
@@ -63,20 +64,27 @@ class CNN1DRawMultiTask(nn.Module):
         n_timesteps: int = 200,
         n_exercise: int = 4,
         n_phase: int = 3,
-        repr_dim: int = 128,
+        channels: Sequence[int] = (32, 16, 8),
+        kernel_sizes: Sequence[int] = (5, 5, 3),
+        repr_dim: int = 96,
         dropout: float = 0.3,
     ):
         super().__init__()
+        if len(channels) != len(kernel_sizes):
+            raise ValueError("channels and kernel_sizes must be same length")
         self.n_channels = n_channels
         self.n_timesteps = n_timesteps
 
+        blocks = []
+        ch_in = n_channels
+        for ch_out, k in zip(channels, kernel_sizes):
+            blocks.append(_CausalConvBlock(ch_in, ch_out, kernel_size=k, dropout=dropout))
+            ch_in = ch_out
         self.encoder = nn.Sequential(
-            _CausalConvBlock(n_channels, 32, kernel_size=7, dropout=dropout),
-            _CausalConvBlock(32, 64, kernel_size=5, dropout=dropout),
-            _CausalConvBlock(64, 128, kernel_size=3, dropout=dropout),
+            *blocks,
             nn.AdaptiveAvgPool1d(1),
             nn.Flatten(),
-            nn.Linear(128, repr_dim),
+            nn.Linear(channels[-1], repr_dim),
             nn.ReLU(),
         )
         self.heads = MultiTaskHeads(repr_dim, n_exercise, n_phase,

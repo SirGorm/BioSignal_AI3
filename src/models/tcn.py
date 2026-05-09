@@ -68,10 +68,10 @@ class TCNMultiTask(nn.Module):
         n_features: int,
         n_exercise: int,
         n_phase: int,
-        channels: Sequence[int] = (32, 64, 64, 128),
-        kernel_size: int = 5,
+        channels: Sequence[int] = (8, 16, 16, 32),
+        kernel_size: int = 3,
         dropout: float = 0.2,
-        repr_dim: int = 128,
+        repr_dim: int = 32,
     ):
         super().__init__()
         self.n_features = n_features

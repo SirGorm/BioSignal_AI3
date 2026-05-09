@@ -96,10 +96,10 @@ class TCNRawMultiTask(nn.Module):
         n_timesteps: int = 200,
         n_exercise: int = 4,
         n_phase: int = 3,
-        channels: Sequence[int] = (32, 64, 64, 128),
-        kernel_size: int = 5,
+        channels: Sequence[int] = (4, 8, 16, 32),
+        kernel_size: int = 3,
         dropout: float = 0.2,
-        repr_dim: int = 128,
+        repr_dim: int = 64,
     ):
         super().__init__()
         self.n_channels = n_channels

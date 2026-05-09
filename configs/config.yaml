@@ -1,0 +1,552 @@
+# =============================================================================
+# Strength-RT — Master configuration file
+# =============================================================================
+#
+# Purpose
+# -------
+# Central place to change every parameter that lives elsewhere as a magic
+# number in src/. Each section maps 1:1 to a module under src/. Comments
+# point at the file/symbol the value originates from so you can grep your
+# way back to the implementation.
+#
+# Existing config files (default.yaml, nn.yaml, exercises.yaml,
+# methods_reference.yaml) are kept for backward compatibility; this file
+# duplicates and supersedes the values that the codebase actually reads.
+# To migrate, load this file in scripts via:
+#
+#     import yaml; CFG = yaml.safe_load(open("configs/config.yaml"))
+#
+# and replace any imported `FS_EMG`, `BASELINE_S`, etc. with
+# `CFG["sample_rates"]["emg"]`, `CFG["baseline"]["duration_s"]`, ...
+#
+# Sections
+# --------
+#  1. paths
+#  2. sample_rates
+#  3. filters
+#  4. baseline
+#  5. modalities
+#  6. windows
+#  7. session_segmentation
+#  8. labeling
+#  9. exercises
+# 10. quality_thresholds
+# 11. features
+# 12. soft_targets
+# 13. cv
+# 14. models_lgbm
+# 15. models_nn
+# 16. training
+# 17. losses
+# 18. streaming
+# 19. latency
+# 20. eval
+# 21. blacklists
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# 1. PATHS
+# -----------------------------------------------------------------------------
+# Source: scripts/* default arguments, src/features/window_features.py main(),
+#         src/training/cv.py:load_or_generate_splits.
+paths:
+  raw_dir: dataset                                  # original CSVs (read-only)
+  raw_memory_dir: dataset_memory                    # onboard-memory CSVs (temp only)
+  aligned_dir: dataset_aligned                      # built by scripts/build_dataset_aligned.py
+  labeled_dir: data/labeled                         # /label output → aligned_features.parquet
+  inspections_dir: inspections
+  participants_xlsx: dataset/Participants/Participants.xlsx
+  splits_csv: configs/splits.csv
+  splits_per_fold_csv: configs/splits_per_fold.csv
+  splits_loso_csv: configs/splits_loso.csv
+  splits_clean_csv: configs/splits_clean.csv
+  splits_clean_loso_csv: configs/splits_clean_loso.csv
+  phase_quality_sets_csv: configs/phase_quality_sets.csv
+  exercises_yaml: configs/exercises.yaml
+  default_run_dir: runs/20260426_154705_default     # used by feature extraction default arg
+
+
+# -----------------------------------------------------------------------------
+# 2. SAMPLE RATES (Hz)
+# -----------------------------------------------------------------------------
+# Verified against dataset/recording_012/metadata.json. Hardcoded as
+# FS_ECG, FS_EMG, FS_EDA, FS_ACC, FS_PPG_DEFAULT, FS_TEMP in:
+#   src/features/{ecg,emg,eda,acc,ppg,temp}_features.py
+#   src/streaming/{ecg,emg,eda,acc,ppg,temp}_streaming.py
+#   src/labeling/align.py:FS_EMG_NATIVE
+sample_rates:
+  ecg: 500
+  emg: 2000           # native EMG rate; envelope downsampled to 100 Hz in parquet
+  eda: 50
+  temp: 1
+  acc: 100
+  ppg_green: 100      # default; per-recording override read from metadata.json["sampling_rates"]["ppg"]
+  labeled_grid: 100   # 100 Hz unified grid in aligned_features.parquet (src/labeling/align.py:make_100hz_grid)
+
+
+# -----------------------------------------------------------------------------
+# 3. FILTERS — causal + offline definitions per modality
+# -----------------------------------------------------------------------------
+# All bandpass orders are 4 unless noted. Source files:
+#   src/features/{ecg,emg,eda,acc,ppg,temp}_features.py
+#   src/streaming/{ecg,emg,eda,acc,ppg,temp}_streaming.py
+#   src/labeling/align.py:emg_envelope
+filters:
+  ecg:
+    type: butterworth
+    order: 4
+    low_hz: 0.5
+    high_hz: 40.0
+    notch_hz: 50.0       # Norwegian mains
+    notch_q: 30
+  emg:
+    type: butterworth
+    order: 4
+    low_hz: 20.0          # EMG_BAND_LOW_HZ in src/labeling/align.py
+    high_hz: 450.0        # EMG_BAND_HIGH_HZ
+    notch_hz: 50.0
+    notch_q: 30           # EMG_NOTCH_Q
+    rms_envelope_window_ms: 50.0  # EMG_RMS_WINDOW_MS — used for 100 Hz parquet column
+  eda:
+    type: butterworth
+    order: 4
+    low_hz: null
+    high_hz: 5.0          # lowpass-only; src/features/eda_features.py:_filter_eda_offline
+  temp:
+    type: butterworth
+    order: 2              # lower order than EMG/ECG — temp is very slow
+    low_hz: null
+    high_hz: 0.1
+  acc:
+    type: butterworth
+    order: 4
+    low_hz: 0.5
+    high_hz: 20.0
+  ppg_green:
+    type: butterworth
+    order: 4
+    low_hz: 0.5
+    high_hz: 8.0          # preserves up to ~240 bpm (Allen 2007)
+
+
+# -----------------------------------------------------------------------------
+# 4. BASELINE (per-subject normalisation)
+# -----------------------------------------------------------------------------
+# CLAUDE.md "EMG-baseline" rule: first 60-120 s of each recording is rest.
+# Used by:
+#   src/data/raw_window_dataset.py:BASELINE_SAMPLES (90 s = 9000 @ 100 Hz)
+#   src/data/datasets.py:BASELINE_S (120 s)
+#   src/features/emg_features.py:EmgBaselineNormalizer
+#   src/streaming/realtime.py:BASELINE_S (60 s)
+#   src/streaming/emg_streaming.py:baseline_s default (60 s)
+baseline:
+  duration_s: 120.0          # streaming + offline feature extractor
+  raw_dataset_duration_s: 120.0   # BASELINE_SAMPLES / FS_LABELED_GRID = 12000 / 100
+  feature_dataset_duration_s: 120.0  # WindowFeatureDataset BASELINE_S
+  min_samples_full_recording_fallback: 100  # WindowFeatureDataset sparse-feature fallback
+  min_samples_raw_dataset_fallback: 10      # raw_window_dataset sparse-channel fallback
+  required_min_s: 120.0      # quality flag in src/labeling/run.py if shorter
+
+
+# -----------------------------------------------------------------------------
+# 5. MODALITIES — which signals enter the model
+# -----------------------------------------------------------------------------
+# Source of truth:
+#   src/data/datasets.py:EXCLUDED_FEATURE_PREFIXES  (feature path)
+#   src/data/raw_window_dataset.py:RAW_CHANNELS     (raw NN path)
+modalities:
+  excluded_feature_prefixes: [ecg_, eda_]
+  raw_channels: [emg, ppg_green, acc_mag, temp]
+  ecg_excluded_reason: "QRS morphology unstable across raw vs NeuroKit2-cleaned (scripts/compare_ecg_filtering.py)"
+  eda_excluded_reason: "All 9 recordings fail dynamic-range threshold (Greco et al. 2016)"
+
+
+# -----------------------------------------------------------------------------
+# 6. WINDOWS — per-modality feature window/hop and the dataset grid
+# -----------------------------------------------------------------------------
+# Per-modality window/hop is currently in WINDOW_MS / HOP_MS module constants
+# in each features file. The dataset window/hop is in raw_window_dataset.py.
+windows:
+  primary_hop_ms: 100        # default hop on the 100 Hz feature grid
+  feature_extraction:        # per-modality window for feature extractors
+    ecg_s: 30.0              # src/features/ecg_features.py:WINDOW_S
+    emg_ms: 500              # src/features/emg_features.py:WINDOW_MS
+    eda_s: 10.0              # src/features/eda_features.py:WINDOW_S
+    temp_s: 60.0             # src/features/temp_features.py:WINDOW_S
+    acc_ms: 2000             # src/features/acc_features.py:WINDOW_MS
+    ppg_s: 10.0              # src/features/ppg_features.py:WINDOW_S
+    ppg_hop_ms: 100
+  dataset:
+    window_s: 2.0             # raw_window_dataset.DEFAULT_WINDOW_S
+    hop_s: 1.0                # 50 % overlap by default
+  norm:
+    mode: baseline            # baseline | robust | percentile
+    clip_sigma: 5.0           # raw_window_dataset.CLIP_SIGMA
+    feature_clip: 8.0         # WindowFeatureDataset clamp range (±8 σ)
+
+
+# -----------------------------------------------------------------------------
+# 7. SESSION SEGMENTATION (acc-magnitude state machine)
+# -----------------------------------------------------------------------------
+# Currently used only at inference; offline labeling reads markers.json.
+session_segmentation:
+  threshold_g: 0.3
+  min_active_duration_s: 20
+  merge_gap_s: 5
+  trust_spreadsheet_when_available: true
+
+
+# -----------------------------------------------------------------------------
+# 8. LABELING — offline aligned-features pipeline
+# -----------------------------------------------------------------------------
+# src/labeling/run.py and src/labeling/markers.py constants.
+labeling:
+  expected_n_sets: 12
+  marker_canonical_selection:
+    min_reps: 3                      # markers.select_canonical_sets
+    min_duration_s: 10.0
+  unix_timestamp_floor: 1.0e9        # data/loaders.py validation
+  kinect_fps_fallback: 30.0          # used when set_end_unix unknown
+  joint_angle:
+    isometric_threshold_deg_s: 5.0   # joint_angles._ISOMETRIC_THRESHOLD_DEG_S
+    velocity_lp_hz_default: 2.0      # label_phase default
+    min_block_s_default: 0.3         # _merge_short_phase_blocks
+    derivative_window_frames: 3      # compute_angle_derivatives
+    snap_window_s: 0.20              # snap-to-extremum window
+    min_signal_range_deg: 5.0        # below = flat → "isometric" / "unknown"
+  acc_phase:
+    velocity_lp_hz: 0.7
+    velocity_threshold_m_s: 0.05
+    gravity_lp_hz: 0.3               # Karantonis et al. 2006
+    bp_low_hz: 0.3                   # rep-band lower cutoff
+    min_rep_duration_s: 0.8
+    min_block_s: 0.7
+    min_samples_to_run: 50
+  rep_detection:                     # joint_angles._REP_DETECTION_PARAMS
+    squat:      {prom_frac: 0.40, prom_floor: 12.0, min_dist_s: 0.8, min_range: 30.0, lp_hz: 2.5, lp_order: 2, medfilt_k: 5}
+    deadlift:   {prom_frac: 0.22, prom_floor: 5.0,  min_dist_s: 1.0, min_range: 7.0,  lp_hz: 2.5, lp_order: 2, medfilt_k: 5}
+    pullup:     {prom_frac: 0.35, prom_floor: 10.0, min_dist_s: 1.0, min_range: 20.0, lp_hz: 2.5, lp_order: 2, medfilt_k: 5}
+    benchpress: {prom_frac: 0.35, prom_floor: 10.0, min_dist_s: 1.0, min_range: 20.0, lp_hz: 2.0, lp_order: 2, medfilt_k: 5}
+
+
+# -----------------------------------------------------------------------------
+# 9. EXERCISES — phase convention + joint triplets
+# -----------------------------------------------------------------------------
+# Source of truth: src/labeling/joint_angles.py:_EXERCISE_TRIPLETS.
+exercises:
+  list: [squat, deadlift, benchpress, pullup]
+  acc_phase_only:    [benchpress]                # bench: Kinect cannot see elbow
+  acc_phase_fallback: [squat, deadlift]          # use IMU when Kinect range too small
+  phase_inverted:    [pullup]                    # angle decreasing → concentric
+  joint_triplets:                                # (proximal, vertex, distal) — bilateral averaged
+    squat:
+      - [HIP_LEFT,  KNEE_LEFT,  ANKLE_LEFT]
+      - [HIP_RIGHT, KNEE_RIGHT, ANKLE_RIGHT]
+    deadlift:
+      - [PELVIS, HIP_LEFT,  KNEE_LEFT]
+      - [PELVIS, HIP_RIGHT, KNEE_RIGHT]
+    benchpress:
+      - [SHOULDER_LEFT,  ELBOW_LEFT,  WRIST_LEFT]
+      - [SHOULDER_RIGHT, ELBOW_RIGHT, WRIST_RIGHT]
+    pullup:
+      - [SHOULDER_LEFT,  ELBOW_LEFT,  WRIST_LEFT]
+      - [SHOULDER_RIGHT, ELBOW_RIGHT, WRIST_RIGHT]
+
+
+# -----------------------------------------------------------------------------
+# 10. QUALITY THRESHOLDS
+# -----------------------------------------------------------------------------
+# src/labeling/run.py + src/data/raw_window_dataset.py
+quality_thresholds:
+  eda_std_floor_S: 1.0e-7              # below = sensor floor (Greco 2016)
+  eda_range_floor_S: 5.0e-8
+  joint_nan_max_frac: 0.50              # extrema-anchored phase: skip if >50 % NaN
+  phase_unknown_max_frac: 0.5           # raw_window_dataset.PHASE_UNKNOWN_MAX_FRAC
+  state_machine_min_f1: 0.85            # ML fallback trigger for phase
+  state_machine_min_recall: 0.85        # ML fallback trigger for reps
+
+
+# -----------------------------------------------------------------------------
+# 11. FEATURES — per-modality feature thresholds + Welch settings
+# -----------------------------------------------------------------------------
+features:
+  emg:
+    nperseg_max: 256              # Welch window cap
+    physiological_band_hz: [20.0, 450.0]
+    wamp_threshold_v: 5.0e-5      # Hudgins et al. 1993 (50 µV)
+  acc:
+    nperseg_max: 256
+    rep_band_low_hz: 0.3          # González-Badillo & Sánchez-Medina 2010
+    rep_band_high_hz: 1.5
+    wamp_threshold_g: 0.05        # Hudgins, post-bandpass surrogate
+  ppg:
+    physiological_pp_s: [0.25, 2.0]   # 30–240 bpm
+    peak_min_distance_s: 0.20         # 300 bpm refractory
+    peak_height_frac_of_max: 0.3
+    pulse_amp_half_window_s: 0.3
+  ecg:
+    physiological_rr_ms: [300, 2000]
+    welch_window_s: 30.0
+    integration_window_s: 0.2         # Pan–Tompkins
+    refractory_s: 0.2
+    nn_rel_threshold: 0.20            # Malik et al. 1996
+    nn_local_window: 5
+  eda:
+    moving_median_window_s: 2.0
+    scr_threshold_uS: 0.05
+  temp:
+    min_valid_samples_per_window: 5
+  baseline_threshold:
+    wamp_k: 0.1                       # extra_features.baseline_threshold default
+
+
+# -----------------------------------------------------------------------------
+# 12. SOFT TARGETS (training labels)
+# -----------------------------------------------------------------------------
+# src/features/window_features.py + src/data/datasets.py + raw_window_dataset.py
+soft_targets:
+  reps_aggregation_window_s: 2.0       # SOFT_WIN_S
+  reps_aggregation_samples: 200        # SOFT_WIN_SAMPLES (= 2 s × 100 Hz)
+  phase_classes: [rest, concentric, eccentric, isometric, unknown]
+  default_modes:
+    reps: hard           # hard | soft_window | soft_overlap
+    phase: soft          # hard | soft
+  rep_eval:
+    hop_s: 0.1
+    window_s: 2.0
+
+
+# -----------------------------------------------------------------------------
+# 13. CROSS-VALIDATION
+# -----------------------------------------------------------------------------
+cv:
+  scheme: loso                # loso | groupkfold (auto switch when N > 24)
+  n_splits: 5                 # GroupKFold fallback
+  reuse_baseline_splits: true # NN must reuse LightGBM splits
+
+
+# -----------------------------------------------------------------------------
+# 14. LIGHTGBM / RANDOM-FOREST BASELINES
+# -----------------------------------------------------------------------------
+models_lgbm:
+  fatigue:
+    type: lgbm_regressor
+    objective: regression_l1
+    n_estimators: 300
+    max_depth: 5
+    learning_rate: 0.05
+    num_leaves: 15
+    min_child_samples: 10
+  exercise:
+    type: lgbm_classifier
+    objective: multiclass
+    n_estimators: 300
+    max_depth: 6
+    class_weight: balanced
+  phase:
+    primary: state_machine
+    fallback: lgbm_classifier
+    min_state_machine_f1: 0.85
+  reps:
+    primary: state_machine
+    fallback: lgbm_regressor
+    min_state_machine_recall: 0.85
+
+
+# -----------------------------------------------------------------------------
+# 15. NEURAL ARCHITECTURES (per-architecture defaults)
+# -----------------------------------------------------------------------------
+# Keep numbers in sync with the model __init__ defaults so swapping the YAML
+# value actually changes behaviour. Hyper-parameters that Optuna tunes
+# (channels, kernel, dropout) are listed here as the *current* defaults
+# loaded by scripts/train_optuna.py when --no-optuna is passed.
+models_nn:
+  # Feature-input variants (src/models/*.py)
+  features:
+    cnn1d:
+      channels: [16, 32, 32]
+      kernel_sizes: [5, 3, 3]
+      repr_dim: 128
+      dropout: 0.3
+    lstm:
+      hidden: 40
+      n_layers: 1
+      repr_dim: 64
+      dropout: 0.3
+      bidirectional: false           # deploy uses unidirectional only
+    cnn_lstm:
+      conv_first_channels: 16
+      conv_channels: 32
+      lstm_hidden: 16
+      n_lstm_layers: 1
+      repr_dim: 64
+      dropout: 0.3
+      bidirectional: true            # research only
+    tcn:
+      channels: [8, 16, 16, 32]
+      kernel_size: 3
+      repr_dim: 32
+      dropout: 0.2
+    mlp:
+      hidden_dim: 80
+      repr_dim: 80
+      dropout: 0.3
+
+  # Raw-signal variants (src/models/raw/*.py)
+  raw:
+    n_channels: 4                    # = len(modalities.raw_channels)
+    n_timesteps: 200                 # = window_s × fs_grid
+    cnn1d:
+      channels: [32, 16, 8]
+      kernel_sizes: [5, 5, 3]
+      repr_dim: 96
+      dropout: 0.3
+    lstm:
+      hidden: 24
+      n_layers: 1
+      repr_dim: 64
+      dropout: 0.3
+      bidirectional: true            # research only
+    cnn_lstm:
+      conv_first_channels: 8
+      conv_channels: 16
+      lstm_hidden: 24
+      n_lstm_layers: 1
+      repr_dim: 32
+      dropout: 0.3
+      bidirectional: true            # research only
+    tcn:
+      channels: [4, 8, 16, 32]
+      kernel_size: 3
+      repr_dim: 64
+      dropout: 0.2
+
+  # Number of output classes — derived from data, but pinned here as a sanity
+  # check (label encoders fit() at dataset construction time).
+  n_exercise: 4
+  n_phase: 3                         # concentric / eccentric / isometric
+
+
+# -----------------------------------------------------------------------------
+# 16. TRAINING (PyTorch loop)
+# -----------------------------------------------------------------------------
+# src/training/loop.py:TrainConfig defaults. Override per-experiment.
+training:
+  epochs: 50
+  batch_size: 64
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  grad_clip: 1.0
+  patience: 8                  # early stopping
+  num_workers: 4
+  mixed_precision: true
+  optimizer: adamw
+  lr_schedule: cosine
+  uncertainty_weighting: true   # Kendall et al. 2018
+  save_checkpoint: true
+  enabled_tasks: [exercise, phase, fatigue, reps]
+  seeds: [42, 1337, 7]
+  deterministic: false          # cuDNN benchmark stays on for speed
+
+  # Phase 1 / 2 strategy when /train-nn runs on a CPU
+  phase_1_screening:
+    enabled: true
+    cv_scheme: groupkfold
+    n_splits: 5
+    n_seeds: 1
+    cpu_subsample_per_fold: 40000
+    cpu_epochs: 20
+    cpu_optuna_trials: 8
+    cpu_batch_size: 256
+    cpu_patience: 6
+    goal: identify top 2-3 of 8 variants
+  phase_2_final:
+    enabled: true
+    cv_scheme: loso
+    n_seeds: 3
+    cpu_epochs: 30
+    selected_variants: auto
+
+
+# -----------------------------------------------------------------------------
+# 17. LOSSES (multi-task)
+# -----------------------------------------------------------------------------
+losses:
+  weights:
+    exercise: 1.0
+    phase: 1.0
+    fatigue: 1.0
+    reps: 0.5                   # often dominates if not down-weighted
+  exercise: cross_entropy
+  phase_hard: cross_entropy
+  phase_soft: kl_div            # used when target_modes.phase = soft
+  fatigue: l1
+  reps: smooth_l1
+
+
+# -----------------------------------------------------------------------------
+# 18. STREAMING (real-time pipeline)
+# -----------------------------------------------------------------------------
+streaming:
+  chunk_size_samples: 100        # 1 s @ 100 Hz, src/streaming/realtime.CHUNK_SIZE
+  baseline_capture_s: 60.0       # src/streaming/realtime.BASELINE_S
+  ratios_to_acc:                 # convenience: derived from sample_rates
+    ecg: 5                       # 500 / 100
+    emg: 20                      # 2000 / 100
+    eda_inv: 2                   # 100 / 50 (EDA slower than acc)
+
+
+# -----------------------------------------------------------------------------
+# 19. LATENCY BUDGET
+# -----------------------------------------------------------------------------
+latency:
+  budget_p99_ms: 100             # default.yaml + src/eval/latency_benchmark.py
+  benchmark_replay_minutes: 10
+  benchmark_chunk_size: 1        # 1-sample chunks = worst case
+
+
+# -----------------------------------------------------------------------------
+# 20. EVAL — significance tests + reporting defaults
+# -----------------------------------------------------------------------------
+eval:
+  significance_test: auto        # ttest | wilcoxon | auto
+  alternative: two-sided
+  bonferroni_correction: true    # 4 archs × 4 tasks = 16 tests vs baseline
+
+
+# -----------------------------------------------------------------------------
+# 21. BLACKLISTS (curated post-QC overrides)
+# -----------------------------------------------------------------------------
+# src/labeling/run.py:_PHASE_REPS_BLACKLIST and _ALL_HEADS_BLACKLIST.
+# Each entry is [recording_id, canonical_set_number].
+blacklists:
+  manual_marker_exclusions:
+    recording_008: [8, 9]
+    recording_009: [10, 11, 12, 13, 14]
+  phase_reps:
+    - [recording_003, 11]
+    - [recording_006, 9]
+    - [recording_007, 7]
+    - [recording_007, 8]
+    - [recording_007, 9]
+    - [recording_008, 3]
+    - [recording_008, 9]
+    - [recording_008, 10]
+    - [recording_008, 11]
+    - [recording_008, 12]
+    - [recording_009, 5]
+    - [recording_009, 6]
+    - [recording_011, 3]
+    - [recording_011, 8]
+    - [recording_011, 9]
+    - [recording_011, 10]
+    - [recording_011, 11]
+    - [recording_013, 7]
+    - [recording_014, 7]
+    - [recording_014, 11]
+    - [recording_014, 12]
+  all_heads:
+    - [recording_009, 10]
+    - [recording_009, 11]
+    - [recording_009, 12]

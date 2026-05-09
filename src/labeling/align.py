@@ -57,12 +57,12 @@ from scipy.signal import butter, sosfiltfilt, iirnotch, filtfilt
 # ---------------------------------------------------------------------------
 # EMG envelope parameters
 # ---------------------------------------------------------------------------
-FS_EMG_NATIVE = 2000      # Hz — verified against metadata.json on every recording
-EMG_BAND_LOW_HZ = 20.0    # De Luca 1997
-EMG_BAND_HIGH_HZ = 450.0  # De Luca 1997
-EMG_NOTCH_HZ = 50.0       # Norway mains frequency
+FS_EMG_NATIVE = 2000     
+EMG_BAND_LOW_HZ = 20.0    
+EMG_BAND_HIGH_HZ = 450.0  
+EMG_NOTCH_HZ = 50.0       
 EMG_NOTCH_Q = 30
-EMG_RMS_WINDOW_MS = 50.0  # Konrad 2005 — 50 ms gives ~20 Hz LP, safe for 100 Hz grid
+EMG_RMS_WINDOW_MS = 50.0  
 
 
 # ---------------------------------------------------------------------------

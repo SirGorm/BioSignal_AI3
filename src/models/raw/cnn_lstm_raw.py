@@ -51,10 +51,11 @@ class CNNLSTMRawMultiTask(nn.Module):
         n_timesteps: int = 200,
         n_exercise: int = 4,
         n_phase: int = 3,
-        conv_channels: int = 64,
-        lstm_hidden: int = 64,
+        conv_first_channels: int = 8,
+        conv_channels: int = 16,
+        lstm_hidden: int = 24,
         n_lstm_layers: int = 1,
-        repr_dim: int = 128,
+        repr_dim: int = 32,
         dropout: float = 0.3,
     ):
         super().__init__()
@@ -62,9 +63,9 @@ class CNNLSTMRawMultiTask(nn.Module):
         self.n_timesteps = n_timesteps
 
         # Causal conv front-end
-        self.conv1 = nn.Conv1d(n_channels, 32, kernel_size=5, padding=0)
-        self.bn1 = nn.BatchNorm1d(32)
-        self.conv2 = nn.Conv1d(32, conv_channels, kernel_size=3, padding=0)
+        self.conv1 = nn.Conv1d(n_channels, conv_first_channels, kernel_size=5, padding=0)
+        self.bn1 = nn.BatchNorm1d(conv_first_channels)
+        self.conv2 = nn.Conv1d(conv_first_channels, conv_channels, kernel_size=3, padding=0)
         self.bn2 = nn.BatchNorm1d(conv_channels)
         self.drop = nn.Dropout(dropout)
 

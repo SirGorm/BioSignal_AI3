@@ -3,9 +3,13 @@ Causal accelerometer feature extractor for real-time deployment.
 
 Computes acc_mag = sqrt(ax^2 + ay^2 + az^2) FIRST, then causal bandpass.
 Features per window (2 s, hop 100 ms):
-  acc_rms, acc_jerk_rms, acc_dom_freq, acc_rep_band_power, acc_rep_band_ratio
+  acc_rms, acc_jerk_rms, acc_dom_freq, acc_rep_band_power, acc_rep_band_ratio,
+  acc_lscore, acc_mfl, acc_msr, acc_wamp
 
 Welch PSD is applied per window only (not over the whole signal).
+Phinyomark et al. 2012 amplitude descriptors (lscore, mfl, msr) and the
+Hudgins et al. 1993 Willison amplitude (wamp) are pure window-level
+computations — no filter state is required.
 
 NO filtfilt. NO savgol_filter. NO find_peaks over whole signal.
 The hook check-no-filtfilt.sh enforces this.
@@ -18,12 +22,17 @@ References
 - González-Badillo, J. J., & Sánchez-Medina, L. (2010). Movement velocity as a
   measure of loading intensity in resistance training. International Journal of
   Sports Medicine, 31(05), 347-352.
+- Hudgins, B., Parker, P., & Scott, R. N. (1993). A new strategy for multifunction
+  myoelectric control. IEEE Transactions on Biomedical Engineering, 40(1), 82-94.
 - Khan, A. M., Lee, Y. K., Lee, S. Y., & Kim, T. S. (2010). A triaxial
   accelerometer-based physical-activity recognition via augmented-signal features
   and a hierarchical recognizer. IEEE Transactions on Information Technology in
   Biomedicine, 14(5), 1166-1172.
 - Mannini, A., & Sabatini, A. M. (2010). Machine learning methods for classifying
   human physical activity from on-body accelerometers. Sensors, 10(2), 1154-1175.
+- Phinyomark, A., Phukpattaranont, P., & Limsakul, C. (2012). Feature reduction
+  and selection for EMG signal classification. Expert Systems with Applications,
+  39(8), 7420-7431.
 - Welch, P. (1967). The use of fast Fourier transform for the estimation of power
   spectra. IEEE Transactions on Audio and Electroacoustics, 15(2), 70-73.
 - Oppenheim, A. V., & Schafer, R. W. (2010). Discrete-Time Signal Processing
@@ -47,23 +56,38 @@ HOP_MS = 100
 REP_BAND_LOW = 0.3
 REP_BAND_HIGH = 1.5
 
+# Must mirror src.features.acc_features.ACC_WAMP_THRESHOLD for offline/online
+# parity (Hudgins et al. 1993).
+ACC_WAMP_THRESHOLD = 0.05
 
-def _acc_features_from_window(acc_mag_win: np.ndarray, fs: int) -> dict:
+
+def _acc_features_from_window(acc_mag_win: np.ndarray, fs: int,
+                                wamp_threshold: float = ACC_WAMP_THRESHOLD) -> dict:
     """Compute accelerometer features from one window (causal, Welch per-window).
 
     González-Badillo & Sánchez-Medina 2010 — rep-rate spectral band 0.3-1.5 Hz.
-    Welch 1967 — PSD method.
+    Welch 1967 — PSD method. Phinyomark et al. 2012 / Hudgins et al. 1993
+    amplitude descriptors require no filter state.
     """
-    nan_result = {k: float("nan") for k in
-                  ["acc_rms", "acc_jerk_rms", "acc_dom_freq",
-                   "acc_rep_band_power", "acc_rep_band_ratio"]}
+    feat_keys = ["acc_rms", "acc_jerk_rms", "acc_dom_freq",
+                 "acc_rep_band_power", "acc_rep_band_ratio",
+                 "acc_lscore", "acc_mfl", "acc_msr", "acc_wamp"]
+    nan_result = {k: float("nan") for k in feat_keys}
 
     if len(acc_mag_win) < 16:
         return nan_result
 
+    abs_x = np.abs(acc_mag_win)
     rms = float(np.sqrt(np.mean(acc_mag_win ** 2)))
     jerk = np.diff(acc_mag_win - np.mean(acc_mag_win)) * fs
     jerk_rms = float(np.sqrt(np.mean(jerk ** 2))) if len(jerk) > 0 else float("nan")
+
+    diffs = np.abs(np.diff(acc_mag_win))
+    wamp = float(np.sum(diffs > wamp_threshold) / max(1, len(diffs)))
+    wl_sq = float(np.sum(diffs ** 2))
+    mfl = float(np.log10(np.sqrt(wl_sq) + 1e-30))
+    msr = float(np.mean(np.sqrt(abs_x)) ** 2)
+    lscore = float(np.exp(np.mean(np.log(np.maximum(abs_x, 1e-30)))))
 
     nperseg = min(256, len(acc_mag_win))
     f, pxx = welch(acc_mag_win, fs=fs, nperseg=nperseg)
@@ -79,6 +103,10 @@ def _acc_features_from_window(acc_mag_win: np.ndarray, fs: int) -> dict:
         "acc_dom_freq": dom_freq,
         "acc_rep_band_power": rep_band_power,
         "acc_rep_band_ratio": rep_band_ratio,
+        "acc_lscore": lscore,
+        "acc_mfl": mfl,
+        "acc_msr": msr,
+        "acc_wamp": wamp,
     }
 
 

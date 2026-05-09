@@ -18,6 +18,7 @@ References:
 """
 
 from __future__ import annotations
+from typing import Sequence
 
 import torch
 import torch.nn as nn
@@ -30,11 +31,9 @@ class CNN1DMultiTask(nn.Module):
 
     Architecture:
       Input:    (B, n_features)   -> reshape to (B, 1, n_features)
-      Conv1d:   1 -> 32, k=5
-      Conv1d:   32 -> 64, k=3
-      Conv1d:   64 -> 128, k=3
-      AdaptiveAvgPool1d -> (B, 128)
-      Linear:   128 -> repr_dim
+      Conv1d stack with channels (default (16, 32, 32))
+      AdaptiveAvgPool1d -> (B, channels[-1])
+      Linear:   channels[-1] -> repr_dim
       Heads:    4 task-specific linear projections
     """
 
@@ -43,29 +42,31 @@ class CNN1DMultiTask(nn.Module):
         n_features: int,
         n_exercise: int,
         n_phase: int,
+        channels: Sequence[int] = (16, 32, 32),
+        kernel_sizes: Sequence[int] = (5, 3, 3),
         repr_dim: int = 128,
         dropout: float = 0.3,
     ):
         super().__init__()
+        if len(channels) != len(kernel_sizes):
+            raise ValueError("channels and kernel_sizes must be same length")
         self.n_features = n_features
 
-        # Causal padding not needed here (offline training) — kernels see
-        # both neighboring features symmetrically.
-        self.encoder = nn.Sequential(
-            nn.Conv1d(1, 32, kernel_size=5, padding=2),
-            nn.BatchNorm1d(32), nn.ReLU(), nn.Dropout(dropout),
-
-            nn.Conv1d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm1d(64), nn.ReLU(), nn.Dropout(dropout),
-
-            nn.Conv1d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm1d(128), nn.ReLU(), nn.Dropout(dropout),
-
+        layers = []
+        in_ch = 1
+        for out_ch, k in zip(channels, kernel_sizes):
+            layers += [
+                nn.Conv1d(in_ch, out_ch, kernel_size=k, padding=k // 2),
+                nn.BatchNorm1d(out_ch), nn.ReLU(), nn.Dropout(dropout),
+            ]
+            in_ch = out_ch
+        layers += [
             nn.AdaptiveAvgPool1d(1),
             nn.Flatten(),
-            nn.Linear(128, repr_dim),
+            nn.Linear(channels[-1], repr_dim),
             nn.ReLU(),
-        )
+        ]
+        self.encoder = nn.Sequential(*layers)
         self.heads = MultiTaskHeads(repr_dim, n_exercise, n_phase,
                                       dropout=dropout)
 

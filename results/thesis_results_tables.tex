@@ -1,0 +1,182 @@
+% Thesis results tables -- fatigue, reps, phase, exercise.
+% Auto-generated from results/Final/v17_v20_thesis_master.csv
+% via scripts/_gen_thesis_tables.py.
+% Requires: \usepackage{booktabs, multirow, glossaries}
+
+% --- Table: Fatigue ---
+\begin{table}[htbp]
+\centering
+\caption{Fatigue estimation \gls{mae} in \gls{rpe} points (lower is better) and Pearson $r$ (higher is better). MT = multi-task, ST = single-task. Best MT and ST values per window are highlighted separately.}
+\label{tab:results-fatigue}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lllcccccc}
+\toprule
+& & & \multicolumn{2}{c}{\textbf{1\,s}} & \multicolumn{2}{c}{\textbf{2\,s}} & \multicolumn{2}{c}{\textbf{5\,s}} \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+\textbf{Variant} & \textbf{Type} & \textbf{Architecture} & MAE $\downarrow$ & $r$ $\uparrow$ & MAE $\downarrow$ & $r$ $\uparrow$ & MAE $\downarrow$ & $r$ $\uparrow$ \\
+\midrule
+  \multirow{2}{*}{Feature}
+    & MT & \gls{mlp} & $1.156 \pm 0.225$ & $0.206 \pm 0.306$ & $1.232 \pm 0.256$ & $0.163 \pm 0.251$ & $1.279 \pm 0.279$ & $0.148 \pm 0.257$ \\
+  
+    & MT & \gls{lstm} & $1.070 \pm 0.258$ & $0.124 \pm 0.351$ & $\mathbf{0.987 \pm 0.212}$ & $0.167 \pm 0.345$ & $1.099 \pm 0.245$ & $0.060 \pm 0.289$ \\
+\midrule
+  \multirow{2}{*}{Feature (ST)}
+    & ST & \gls{mlp} & --- & --- & --- & --- & --- & --- \\
+  
+    & ST & \gls{lstm} & --- & --- & $0.916 \pm 0.191$ & $0.142 \pm 0.157$ & --- & --- \\
+\midrule
+  \multirow{4}{*}{Raw (MT)}
+    & MT & 1D-\gls{cnn} & $1.135 \pm 0.339$ & $0.225 \pm 0.277$ & $1.375 \pm 0.379$ & $0.227 \pm 0.333$ & $1.268 \pm 0.316$ & $0.081 \pm 0.351$ \\
+  
+    & MT & \gls{lstm} & $\mathbf{1.005 \pm 0.183}$ & $\mathbf{0.251 \pm 0.310}$ & $1.149 \pm 0.207$ & $0.225 \pm 0.322$ & $\mathbf{0.981 \pm 0.183}$ & $0.215 \pm 0.371$ \\
+  
+    & MT & \gls{cnn}-\gls{lstm} & $1.154 \pm 0.283$ & $0.184 \pm 0.342$ & $1.114 \pm 0.266$ & $\mathbf{0.256 \pm 0.323}$ & $1.056 \pm 0.253$ & $0.193 \pm 0.325$ \\
+  
+    & MT & \gls{tcn} & $1.098 \pm 0.283$ & $0.230 \pm 0.345$ & $1.170 \pm 0.299$ & $0.230 \pm 0.325$ & $1.040 \pm 0.257$ & $\mathbf{0.221 \pm 0.326}$ \\
+\midrule
+  \multirow{4}{*}{Raw (ST)}
+    & ST & 1D-\gls{cnn} & $0.990 \pm 0.282$ & $0.260 \pm 0.332$ & $0.969 \pm 0.259$ & $\mathbf{0.314 \pm 0.336}$ & $1.006 \pm 0.284$ & $0.239 \pm 0.361$ \\
+  
+    & ST & \gls{lstm} & $\mathbf{0.902 \pm 0.159}$ & $0.163 \pm 0.338$ & $0.922 \pm 0.192$ & $0.130 \pm 0.283$ & $\mathbf{0.892 \pm 0.161}$ & $0.111 \pm 0.325$ \\
+  
+    & ST & \gls{cnn}-\gls{lstm} & $0.905 \pm 0.207$ & $0.327 \pm 0.307$ & $\mathbf{0.908 \pm 0.181}$ & $0.237 \pm 0.341$ & $0.899 \pm 0.164$ & $0.218 \pm 0.325$ \\
+  
+    & ST & \gls{tcn} & $0.919 \pm 0.234$ & $\mathbf{0.334 \pm 0.284}$ & $0.914 \pm 0.261$ & $0.302 \pm 0.343$ & $0.923 \pm 0.227$ & $\mathbf{0.299 \pm 0.351}$ \\
+\midrule
+\multicolumn{3}{l}{RF baseline} & \multicolumn{6}{c}{$0.993 \pm 0.208$,\ $r = 0.190$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --- Table: Reps ---
+\begin{table}[htbp]
+\centering
+\caption{Repetition counting soft-overlap \gls{mae} per window size (lower is better). MT = multi-task, ST = single-task. Best value per window is highlighted.}
+\label{tab:results-reps}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lllccc}
+\toprule
+\textbf{Variant} & \textbf{Type} & \textbf{Architecture} & \textbf{1\,s} & \textbf{2\,s} & \textbf{5\,s} \\
+\midrule
+  \multirow{2}{*}{Feature}
+    & MT & \gls{mlp} & $0.214 \pm 0.039$ & $0.212 \pm 0.037$ & $0.219 \pm 0.046$ \\
+  
+    & MT & \gls{lstm} & $0.212 \pm 0.039$ & $\mathbf{0.209 \pm 0.038}$ & $\mathbf{0.217 \pm 0.048}$ \\
+\midrule
+  \multirow{2}{*}{Feature (ST)}
+    & ST & \gls{mlp} & --- & --- & --- \\
+  
+    & ST & \gls{lstm} & --- & $\mathbf{0.151 \pm 0.049}$ & --- \\
+\midrule
+  \multirow{4}{*}{Raw (MT)}
+    & MT & 1D-\gls{cnn} & $0.109 \pm 0.020$ & $0.211 \pm 0.042$ & $0.477 \pm 0.067$ \\
+  
+    & MT & \gls{lstm} & $\mathbf{0.108 \pm 0.019}$ & $0.213 \pm 0.040$ & $0.515 \pm 0.112$ \\
+  
+    & MT & \gls{cnn}-\gls{lstm} & $0.114 \pm 0.022$ & $0.214 \pm 0.036$ & $0.469 \pm 0.076$ \\
+  
+    & MT & \gls{tcn} & $0.111 \pm 0.020$ & $0.213 \pm 0.036$ & $0.521 \pm 0.112$ \\
+\midrule
+  \multirow{4}{*}{Raw (ST)}
+    & ST & 1D-\gls{cnn} & $\mathbf{0.104 \pm 0.017}$ & $0.185 \pm 0.030$ & $0.390 \pm 0.080$ \\
+  
+    & ST & \gls{lstm} & $0.111 \pm 0.023$ & $0.214 \pm 0.041$ & $0.516 \pm 0.120$ \\
+  
+    & ST & \gls{cnn}-\gls{lstm} & $0.107 \pm 0.017$ & $0.196 \pm 0.032$ & $\mathbf{0.388 \pm 0.082}$ \\
+  
+    & ST & \gls{tcn} & $0.104 \pm 0.017$ & $0.195 \pm 0.028$ & $0.519 \pm 0.111$ \\
+\midrule
+\multicolumn{3}{l}{RF baseline} & \multicolumn{3}{c}{$2.604 \pm 0.864$ (per-set count, not directly comparable)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --- Table: Phase ---
+\begin{table}[htbp]
+\centering
+\caption{Movement phase detection macro-F1 per window size. MT = multi-task, ST = single-task. Best value per window is highlighted.}
+\label{tab:results-phase}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lllccc}
+\toprule
+\textbf{Variant} & \textbf{Type} & \textbf{Architecture} & \textbf{1\,s} & \textbf{2\,s} & \textbf{5\,s} \\
+\midrule
+  \multirow{2}{*}{Feature}
+    & MT & \gls{mlp} & $\mathbf{0.331 \pm 0.034}$ & $\mathbf{0.329 \pm 0.038}$ & $\mathbf{0.327 \pm 0.047}$ \\
+  
+    & MT & \gls{lstm} & $0.236 \pm 0.036$ & $0.262 \pm 0.050$ & $0.217 \pm 0.016$ \\
+\midrule
+  \multirow{2}{*}{Feature (ST)}
+    & ST & \gls{mlp} & $0.312 \pm 0.048$ & --- & --- \\
+  
+    & ST & \gls{lstm} & --- & --- & --- \\
+\midrule
+  \multirow{4}{*}{Raw (MT)}
+    & MT & 1D-\gls{cnn} & $0.273 \pm 0.055$ & $0.242 \pm 0.052$ & $0.305 \pm 0.068$ \\
+  
+    & MT & \gls{lstm} & $0.300 \pm 0.040$ & $0.211 \pm 0.020$ & $0.205 \pm 0.033$ \\
+  
+    & MT & \gls{cnn}-\gls{lstm} & $0.329 \pm 0.035$ & $0.321 \pm 0.041$ & $0.314 \pm 0.059$ \\
+  
+    & MT & \gls{tcn} & $0.324 \pm 0.049$ & $0.293 \pm 0.054$ & $0.246 \pm 0.065$ \\
+\midrule
+  \multirow{4}{*}{Raw (ST)}
+    & ST & 1D-\gls{cnn} & $0.361 \pm 0.038$ & $0.340 \pm 0.045$ & $\mathbf{0.437 \pm 0.090}$ \\
+  
+    & ST & \gls{lstm} & $0.333 \pm 0.048$ & $0.271 \pm 0.059$ & $0.255 \pm 0.055$ \\
+  
+    & ST & \gls{cnn}-\gls{lstm} & $\mathbf{0.379 \pm 0.032}$ & $0.346 \pm 0.037$ & $0.411 \pm 0.095$ \\
+  
+    & ST & \gls{tcn} & $0.365 \pm 0.039$ & $\mathbf{0.351 \pm 0.031}$ & $0.225 \pm 0.057$ \\
+\midrule
+\multicolumn{3}{l}{RF baseline} & \multicolumn{3}{c}{$0.486 \pm 0.027$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --- Table: Exercise ---
+\begin{table}[htbp]
+\centering
+\caption{Exercise classification macro-F1 per window size. MT = multi-task, ST = single-task. Best neural macro-F1 per window is highlighted.}
+\label{tab:results-exercise}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lllccc}
+\toprule
+\textbf{Variant} & \textbf{Type} & \textbf{Architecture} & \textbf{1\,s} & \textbf{2\,s} & \textbf{5\,s} \\
+\midrule
+  \multirow{2}{*}{Feature}
+    & MT & \gls{mlp} & $\mathbf{0.354 \pm 0.113}$ & $0.349 \pm 0.136$ & $0.348 \pm 0.139$ \\
+  
+    & MT & \gls{lstm} & $0.172 \pm 0.105$ & $0.195 \pm 0.089$ & $0.123 \pm 0.015$ \\
+\midrule
+  \multirow{2}{*}{Feature (ST)}
+    & ST & \gls{mlp} & $\mathbf{0.550 \pm 0.155}$ & --- & --- \\
+  
+    & ST & \gls{lstm} & --- & --- & --- \\
+\midrule
+  \multirow{4}{*}{Raw (MT)}
+    & MT & 1D-\gls{cnn} & $0.185 \pm 0.079$ & $0.174 \pm 0.103$ & $\mathbf{0.524 \pm 0.210}$ \\
+  
+    & MT & \gls{lstm} & $0.287 \pm 0.116$ & $0.170 \pm 0.091$ & $0.258 \pm 0.117$ \\
+  
+    & MT & \gls{cnn}-\gls{lstm} & $0.349 \pm 0.146$ & $\mathbf{0.459 \pm 0.164}$ & $0.473 \pm 0.203$ \\
+  
+    & MT & \gls{tcn} & $0.230 \pm 0.100$ & $0.242 \pm 0.098$ & $0.263 \pm 0.117$ \\
+\midrule
+  \multirow{4}{*}{Raw (ST)}
+    & ST & 1D-\gls{cnn} & $0.327 \pm 0.169$ & $0.356 \pm 0.215$ & $0.486 \pm 0.242$ \\
+  
+    & ST & \gls{lstm} & $0.314 \pm 0.130$ & $0.354 \pm 0.154$ & $0.328 \pm 0.151$ \\
+  
+    & ST & \gls{cnn}-\gls{lstm} & $0.311 \pm 0.160$ & $\mathbf{0.412 \pm 0.234}$ & $\mathbf{0.510 \pm 0.266}$ \\
+  
+    & ST & \gls{tcn} & $0.302 \pm 0.153$ & $0.371 \pm 0.171$ & $0.346 \pm 0.181$ \\
+\midrule
+\multicolumn{3}{l}{RF baseline} & \multicolumn{3}{c}{$0.569 \pm 0.138$} \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -24,8 +24,8 @@ class MLPMultiTask(nn.Module):
         n_features: int,
         n_exercise: int = 4,
         n_phase: int = 4,
-        repr_dim: int = 128,
-        hidden_dim: int = 128,
+        repr_dim: int = 80,
+        hidden_dim: int = 80,
         dropout: float = 0.3,
     ):
         super().__init__()

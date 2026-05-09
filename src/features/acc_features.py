@@ -10,6 +10,15 @@ Features per window (2 s, hop 100 ms):
   acc_dom_freq       : dominant frequency from Welch PSD (Welch 1967)
   acc_rep_band_power : spectral power in 0.3-1.5 Hz rep-frequency band
   acc_rep_band_ratio : rep-band power / total power
+  acc_lscore         : log detector / L-Score = exp(mean(log|x|)), geometric mean
+                       of rectified amplitude (Phinyomark et al. 2012)
+  acc_mfl            : maximum fractal length = log10(sqrt(sum diff^2)),
+                       waveform-complexity / signal-roughness measure
+                       (Phinyomark et al. 2012)
+  acc_msr            : mean square root = (mean(sqrt|x|))^2, robust amplitude
+                       estimator (Phinyomark et al. 2012)
+  acc_wamp           : Willison amplitude = fraction of consecutive sample
+                       differences exceeding threshold (Hudgins et al. 1993)
 
 The 0.3-1.5 Hz band captures typical strength-training rep rates of
 ~0.3-1.5 reps/s (González-Badillo & Sánchez-Medina 2010).
@@ -22,12 +31,17 @@ References
 - González-Badillo, J. J., & Sánchez-Medina, L. (2010). Movement velocity as a
   measure of loading intensity in resistance training. International Journal of
   Sports Medicine, 31(05), 347-352.
+- Hudgins, B., Parker, P., & Scott, R. N. (1993). A new strategy for multifunction
+  myoelectric control. IEEE Transactions on Biomedical Engineering, 40(1), 82-94.
 - Khan, A. M., Lee, Y. K., Lee, S. Y., & Kim, T. S. (2010). A triaxial
   accelerometer-based physical-activity recognition via augmented-signal features
   and a hierarchical recognizer. IEEE Transactions on Information Technology in
   Biomedicine, 14(5), 1166-1172.
 - Mannini, A., & Sabatini, A. M. (2010). Machine learning methods for classifying
   human physical activity from on-body accelerometers. Sensors, 10(2), 1154-1175.
+- Phinyomark, A., Phukpattaranont, P., & Limsakul, C. (2012). Feature reduction
+  and selection for EMG signal classification. Expert Systems with Applications,
+  39(8), 7420-7431.
 - Welch, P. (1967). The use of fast Fourier transform for the estimation of power
   spectra. IEEE Transactions on Audio and Electroacoustics, 15(2), 70-73.
 - Virtanen, P., Gommers, R., Oliphant, T. E., et al. (2020). SciPy 1.0: Fundamental
@@ -46,6 +60,15 @@ WINDOW_MS = 2000  # ms — captures full rep cycle at ~0.5-1 Hz rep rate
 HOP_MS = 100
 REP_BAND_LOW = 0.3  # Hz — lower bound for rep-rate spectral band
 REP_BAND_HIGH = 1.5  # Hz — upper bound (González-Badillo & Sánchez-Medina 2010)
+
+# Willison amplitude threshold for the bandpassed acc_mag signal.
+# Hudgins et al. 1993 originally proposed thresholding consecutive-sample
+# differences above the noise floor. The 0.5-20 Hz bandpassed acc_mag has
+# rest-period RMS ≈ 0.01 g and active-set RMS ≈ 0.1-1 g (verified on
+# recordings 010/014). 0.05 (g, native unit after BP) sits ~5x above the
+# rest noise floor and ~10-20x below active peaks, giving the count clear
+# separation between rest and movement transitions.
+ACC_WAMP_THRESHOLD = 0.05
 
 
 def _nanfill_signal(arr: np.ndarray) -> np.ndarray:
@@ -102,32 +125,52 @@ def _filter_acc_causal(acc_mag: np.ndarray, fs: int = FS_ACC) -> np.ndarray:
     return filtered
 
 
-def acc_mag_window_features(acc_mag_window: np.ndarray, fs: int = FS_ACC) -> dict:
+def acc_mag_window_features(acc_mag_window: np.ndarray, fs: int = FS_ACC,
+                              wamp_threshold: float = ACC_WAMP_THRESHOLD) -> dict:
     """Compute accelerometer features for one bandpass-filtered window.
+
+    L-Score / Log Detector = exp(mean(log|x|))            (Phinyomark et al. 2012)
+    MFL = log10(sqrt(sum diff^2))                         (Phinyomark et al. 2012)
+    MSR = (mean(sqrt|x|))^2                               (Phinyomark et al. 2012)
+    WAMP = (1/(N-1)) sum I(|x_{i+1}-x_i| > threshold)     (Hudgins et al. 1993)
 
     Parameters
     ----------
     acc_mag_window : 1D array of filtered acc_mag samples.
     fs             : Sample rate (default 100 Hz).
+    wamp_threshold : Willison amplitude threshold in signal native units
+                     (default ACC_WAMP_THRESHOLD = 0.05; Hudgins et al. 1993).
 
     Returns
     -------
     dict with keys: acc_rms, acc_jerk_rms, acc_dom_freq,
-                    acc_rep_band_power, acc_rep_band_ratio
+                    acc_rep_band_power, acc_rep_band_ratio,
+                    acc_lscore, acc_mfl, acc_msr, acc_wamp
     """
-    nan_result = {k: np.nan for k in
-                  ["acc_rms", "acc_jerk_rms", "acc_dom_freq",
-                   "acc_rep_band_power", "acc_rep_band_ratio"]}
+    feat_keys = ["acc_rms", "acc_jerk_rms", "acc_dom_freq",
+                 "acc_rep_band_power", "acc_rep_band_ratio",
+                 "acc_lscore", "acc_mfl", "acc_msr", "acc_wamp"]
+    nan_result = {k: np.nan for k in feat_keys}
 
     if len(acc_mag_window) < 16:
         return nan_result
 
     # RMS — motion intensity (Bonomi et al. 2009)
+    abs_x = np.abs(acc_mag_window)
     rms = float(np.sqrt(np.mean(acc_mag_window ** 2)))
 
     # Jerk = derivative of acceleration (Khan et al. 2010)
     jerk = np.diff(acc_mag_window - np.mean(acc_mag_window)) * fs
     jerk_rms = float(np.sqrt(np.mean(jerk ** 2))) if len(jerk) > 0 else np.nan
+
+    # Phinyomark et al. 2012 / Hudgins et al. 1993 amplitude descriptors
+    diffs = np.abs(np.diff(acc_mag_window))
+    wamp = float(np.sum(diffs > wamp_threshold) / max(1, len(diffs)))
+    wl_sq = float(np.sum(diffs ** 2))
+    mfl = float(np.log10(np.sqrt(wl_sq) + 1e-30))
+    msr = float(np.mean(np.sqrt(abs_x)) ** 2)
+    # max(|x|, eps) avoids -inf when a sample is exactly zero
+    lscore = float(np.exp(np.mean(np.log(np.maximum(abs_x, 1e-30)))))
 
     # Welch PSD (Welch 1967) — use at most 256 samples per segment
     nperseg = min(256, len(acc_mag_window))
@@ -148,6 +191,10 @@ def acc_mag_window_features(acc_mag_window: np.ndarray, fs: int = FS_ACC) -> dic
         "acc_dom_freq": dom_freq,
         "acc_rep_band_power": rep_band_power,
         "acc_rep_band_ratio": rep_band_ratio,
+        "acc_lscore": lscore,
+        "acc_mfl": mfl,
+        "acc_msr": msr,
+        "acc_wamp": wamp,
     }
 
 

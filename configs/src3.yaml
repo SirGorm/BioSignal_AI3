@@ -1,0 +1,170 @@
+# =============================================================================
+# src3 — dedicated config
+# =============================================================================
+#
+# Holder bare det src3 faktisk leser. Endre verdiene her, eller overstyr
+# fra CLI med OmegaConf dotted syntax:
+#
+#     python -m src3.pipeline.train training.batch_size=8192 training.lr=2e-3
+#
+# For ad-hoc eksperimenter — la denne filen være ren, gjør overstyringer på
+# CLI så de logges i bash-historikken.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# 1. PATHS — alle relative paths løses mot prosjektroten av config.resolve_paths()
+# -----------------------------------------------------------------------------
+paths:
+  labeled_dir:        data/labeled                     # /label-output (raw-variant)
+  features_parquet:   runs/20260427_110653_default/features/window_features.parquet
+  splits_csv:         configs/splits.csv               # subject -> fold
+  participants_xlsx:  dataset/Participants/Participants.xlsx
+
+
+# -----------------------------------------------------------------------------
+# 2. MODALITIES (raw-variant) — channels into the model
+# -----------------------------------------------------------------------------
+modalities:
+  raw_channels: [emg, ppg_green, acc_mag, temp]        # ECG/EDA ekskludert
+
+
+# -----------------------------------------------------------------------------
+# 3. WINDOWS — kun raw-variant bryr seg
+# -----------------------------------------------------------------------------
+windows:
+  dataset:
+    window_s: 2.0
+    hop_s:    1.0                                      # 50 % overlap
+  norm:
+    mode: baseline                                     # baseline | robust | percentile
+
+
+# -----------------------------------------------------------------------------
+# 4. SOFT TARGETS — hvordan reps/phase enkodes
+# -----------------------------------------------------------------------------
+# Bruk hard hvis parqueten ikke har phase_frac_<name>-kolonner (run /label
+# med soft-flagg for å produsere dem).
+soft_targets:
+  default_modes:
+    reps:  soft_overlap                                        # hard | soft_window | soft_overlap
+    phase: soft                                        # hard | soft
+
+
+# -----------------------------------------------------------------------------
+# 5. CROSS-VALIDATION — bruker splits_csv hvis den finnes, ellers genereres
+# -----------------------------------------------------------------------------
+cv:
+  scheme:   groupkfold                                       # loso | groupkfold (når csv mangler)
+  n_splits: 5
+
+
+# -----------------------------------------------------------------------------
+# 6. TRAINING (Lightning Trainer + LitModule)
+# -----------------------------------------------------------------------------
+training:
+  epochs:                 50                           # phase-2 epochs
+  batch_size:             4096                         # MLP er liten — store batches OK
+  num_workers:            0                            # ignored when dataset er GPU-resident
+  lr:                     1.0e-3
+  weight_decay:           1.0e-4
+  grad_clip:              1.0
+  patience:               8                            # early stopping
+  uncertainty_weighting:  true                         # Kendall et al. 2018
+  seeds:                  [69, 1337, 7]                # phase-2 seeds
+
+
+# -----------------------------------------------------------------------------
+# 7. LOSSES — vekter for fixed-weight modus (ignoreres hvis uncertainty=true)
+# -----------------------------------------------------------------------------
+losses:
+  weights:
+    exercise: 1.0
+    phase:    1.0
+    fatigue:  1.0
+    reps:     0.5
+
+
+# -----------------------------------------------------------------------------
+# 8. NN ARCHITECTURES — repr_dim og dropout overstyres av Optuna i Phase 1
+# -----------------------------------------------------------------------------
+models_nn:
+  raw:
+    cnn1d:
+      channels:     [32, 16, 8]
+      kernel_sizes: [5, 5, 3]
+      repr_dim:     96
+      dropout:      0.3
+    lstm:
+      hidden:        24
+      n_layers:      1
+      repr_dim:      64
+      dropout:       0.3
+      bidirectional: false                              # research_only
+    cnn_lstm:
+      conv_first_channels: 8
+      conv_channels:       16
+      lstm_hidden:         24
+      n_lstm_layers:       1
+      repr_dim:            32
+      dropout:             0.3
+      bidirectional:       false                        # research_only
+    tcn:
+      channels:    [4, 8, 16, 32]
+      kernel_size: 3
+      repr_dim:    64
+      dropout:     0.2
+
+  features:
+    mlp:
+      hidden_dim: 80
+      repr_dim:   80
+      dropout:    0.3
+    lstm:                                              # v17 features-LSTM (24-step seq of scalars)
+      hidden:        40
+      n_layers:      1
+      repr_dim:      64
+      dropout:       0.3
+      bidirectional: false                             # deploy uses unidirectional only
+
+
+# -----------------------------------------------------------------------------
+# 9. OPTUNA (Phase 1) — søkerom + budsjett
+# -----------------------------------------------------------------------------
+#
+# search_space-syntaks:
+#   list                                  -> categorical, f.eks. [32, 64, 128]
+#   {low, high}                           -> suggest_float (uniform)
+#   {low, high, log: true}                -> suggest_float (log-uniform)
+#   {low, high, int: true}                -> suggest_int
+#   {low, high, int: true, step: 2}       -> suggest_int med step
+optuna:
+  n_trials:        0                                   # 0 = skip; settes via --n-trials
+  phase1_epochs:   15
+  search_space:
+    # ---- felles for alle arkitekturer ----
+    lr:        {low: 5.0e-4, high: 5.0e-3, log: true}
+    dropout:   {low: 0.0,    high: 0.6}                # widened — la trial velge ingen dropout
+    repr_dim:  [32, 64, 128]
+    # ---- arch-spesifikke (overstyrer felles hvis samme nøkkel) ----
+    mlp:
+      hidden_dim:      [32, 64, 128, 256]
+      n_hidden_layers: {low: 1, high: 4, int: true}    # MLP depth
+    tcn:
+      kernel_size:     [3, 5, 7]
+    lstm:
+      hidden:          [16, 32, 64, 128]
+      n_layers:        {low: 1, high: 2, int: true}    # LSTM stack depth
+    cnn_lstm:
+      lstm_hidden:     [16, 32, 64, 128]
+      n_lstm_layers:   {low: 1, high: 2, int: true}
+
+
+# -----------------------------------------------------------------------------
+# 10. RUN DEFAULTS — overstyres av CLI flags
+# -----------------------------------------------------------------------------
+run:
+  arch:       mlp                                      # cnn1d | lstm | cnn_lstm | tcn | mlp | all
+  variant:    features                                 # raw | features
+  tasks:      [exercise, phase, fatigue, reps]
+  out_dir:    runs                                     # parent dir; subdir auto-genereres med timestamp

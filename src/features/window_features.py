@@ -371,7 +371,10 @@ def _build_set_features(window_df: pd.DataFrame, normalizer: EmgBaselineNormaliz
         # ECG HRV aggregates: SKIPPED (signal quality insufficient on this dataset).
 
         # EMG per-set slopes — fatigue indicators (Dimitrov et al. 2006, Cifrek et al. 2009)
-        for feat in ["emg_mnf", "emg_mdf", "emg_dimitrov", "emg_rms"]:
+        # Phinyomark et al. 2012 / Hudgins et al. 1993 amplitude features included so
+        # their within-set slopes are available for the per-set fatigue model.
+        for feat in ["emg_mnf", "emg_mdf", "emg_dimitrov", "emg_rms",
+                     "emg_lscore", "emg_mfl", "emg_msr", "emg_wamp"]:
             if feat in grp:
                 vals = grp[feat].values
                 row[f"{feat}_mean"] = float(np.nanmean(vals))
@@ -387,8 +390,11 @@ def _build_set_features(window_df: pd.DataFrame, normalizer: EmgBaselineNormaliz
 
         # EDA: dropped (sensor floor on all 9 recordings; Greco et al. 2016).
 
-        # Accelerometer (Mannini & Sabatini 2010)
-        for col in ["acc_rms", "acc_jerk_rms", "acc_dom_freq", "acc_rep_band_ratio"]:
+        # Accelerometer (Mannini & Sabatini 2010);
+        # Phinyomark et al. 2012 / Hudgins et al. 1993 amplitude descriptors
+        # included for parity with the EMG feature set.
+        for col in ["acc_rms", "acc_jerk_rms", "acc_dom_freq", "acc_rep_band_ratio",
+                     "acc_lscore", "acc_mfl", "acc_msr", "acc_wamp"]:
             if col in grp:
                 row[f"{col}_mean"] = float(np.nanmean(grp[col]))
                 row[f"{col}_std"] = float(np.nanstd(grp[col]))

@@ -51,9 +51,9 @@ class LSTMRawMultiTask(nn.Module):
         n_timesteps: int = 200,
         n_exercise: int = 4,
         n_phase: int = 3,
-        hidden: int = 128,
-        n_layers: int = 2,
-        repr_dim: int = 128,
+        hidden: int = 24,
+        n_layers: int = 1,
+        repr_dim: int = 64,
         dropout: float = 0.3,
         bidirectional: bool = True,
     ):

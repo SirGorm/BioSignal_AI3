@@ -1,0 +1,11 @@
+# src3 — library-first refactor extras.
+# Install on top of the project's existing torch + pandas + numpy + scipy
+# + sklearn stack.
+lightning>=2.2
+torchmetrics>=1.3
+omegaconf>=2.3
+pytorch-tcn>=1.2          # optional — TCNEncoder falls back to manual block
+libemg>=1.0               # optional — emg.py falls back to in-house
+neurokit2>=0.2.7          # optional — ppg/eda fallback to scipy
+antropy>=0.1.6            # optional — acc.py fallback to NaN
+optuna>=3.5               # for future Phase-1 HP search wiring
