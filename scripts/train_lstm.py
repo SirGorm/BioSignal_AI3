@@ -41,6 +41,7 @@ def main():
         smoke_test=args.smoke_test,
         use_uncertainty_weighting=args.uncertainty_weighting,
         phase_whitelist_path=args.phase_whitelist,
+        exercise_aggregation=args.exercise_aggregation,
     )
 
 

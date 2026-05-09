@@ -62,6 +62,12 @@ def main():
                     help='Restrict raw-variant input to a subset of '
                          '[emg, ppg_green, acc_mag, temp] (modality ablation).')
     p.add_argument('--no-uncertainty', action='store_true')
+    p.add_argument('--exercise-aggregation',
+                   choices=['per_window', 'per_set', 'both'],
+                   default='per_window',
+                   help='Exercise eval granularity. per_set aggregates '
+                        'per-window predictions to one per (recording, set) '
+                        'via mean-softmax — mirrors RPE supervision.')
     p.add_argument('--no-tight-hps', dest='tight_hps', action='store_false',
                     help='Use wide HP search space (default: tight, must '
                          'match how the source run was trained).')
@@ -83,10 +89,12 @@ def main():
         raise FileNotFoundError(f"Missing: {src_hp}")
     src = json.loads(src_hp.read_text())
     best_hps = src['best_hps']
-    # Re-merge architecture defaults that weren't sampled.
-    sample = suggest_hps(optuna.trial.FixedTrial({**best_hps}), args.arch,
-                          tight=args.tight_hps)
-    best_hps_full = {**sample, **best_hps}
+    # Use best_hps verbatim — they already contain every HP the model and
+    # training loop need (lr, weight_decay, batch_size, dropout, repr_dim,
+    # hidden_dim, ...). Skipping the FixedTrial validation against the
+    # current search space lets us re-evaluate older runs whose HPs
+    # (e.g. repr_dim=8) fall outside today's search categorical.
+    best_hps_full = dict(best_hps)
     best_hps_full['_patience'] = args.patience
     print(f"[phase2-only] HPs from {src_hp}")
     print(f"[phase2-only] {best_hps_full}")
@@ -176,6 +184,7 @@ def main():
         epochs=args.phase2_epochs, num_workers=args.num_workers,
         out_dir=p2_dir, use_uncertainty=use_uncertainty,
         enabled_tasks=args.tasks, target_modes=target_modes,
+        exercise_aggregation=args.exercise_aggregation,
     )
     elapsed = time.time() - t0
     print(f"[phase2-only] DONE in {elapsed/60:.1f} min")

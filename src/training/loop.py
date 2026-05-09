@@ -123,6 +123,14 @@ class TrainConfig:
     enabled_tasks: List[str] = field(default_factory=lambda: [
         'exercise', 'phase', 'fatigue', 'reps',
     ])
+    # Exercise-head evaluation aggregation. 'per_window' (default, legacy):
+    # one prediction per window, F1 over ~250k windows. 'per_set':
+    # mean-softmax-aggregate to one prediction per (recording, set), F1 over
+    # ~116 sets — mirrors RPE supervision granularity. 'both': report both
+    # numbers in metrics.json (per-window in 'exercise', per-set in
+    # 'exercise_per_set'). Per-set requires the dataset to expose
+    # `recording_ids` and `set_numbers` arrays.
+    exercise_aggregation: str = 'per_window'
 
 
 def set_deterministic(seed: int):
@@ -185,7 +193,9 @@ def _train_one_epoch(model, loader, loss_fn, opt, scaler, device, cfg):
 
 
 @torch.no_grad()
-def _evaluate(model, loader, loss_fn, device, cfg, n_exercise, n_phase):
+def _evaluate(model, loader, loss_fn, device, cfg, n_exercise, n_phase,
+              set_keys: Optional[np.ndarray] = None,
+              exercise_aggregation: str = 'per_window'):
     model.eval()
     all_preds = {'exercise': [], 'phase': [], 'fatigue': [], 'reps': []}
     all_targets = {k: [] for k in all_preds}
@@ -217,7 +227,9 @@ def _evaluate(model, loader, loss_fn, device, cfg, n_exercise, n_phase):
     cat_masks = {k: torch.cat(v) for k, v in all_masks.items()}
 
     metrics = compute_all_metrics(cat_preds, cat_targets, cat_masks,
-                                   n_exercise=n_exercise, n_phase=n_phase)
+                                   n_exercise=n_exercise, n_phase=n_phase,
+                                   set_keys=set_keys,
+                                   exercise_aggregation=exercise_aggregation)
     return losses, metrics, cat_preds, cat_targets, cat_masks
 
 
@@ -324,8 +336,32 @@ def train_one_fold(
 
     # Restore best and evaluate final
     model.load_state_dict(best_state)
+    # Build per-window set keys for the test fold if per-set exercise eval is
+    # requested. Order matches test_idx (test_loader uses shuffle=False) and
+    # therefore aligns with cat_preds inside _evaluate.
+    if cfg.exercise_aggregation != 'per_window':
+        rec = getattr(dataset, 'recording_ids', None)
+        sn = getattr(dataset, 'set_numbers', None)
+        if rec is None or sn is None:
+            raise AttributeError(
+                "cfg.exercise_aggregation="
+                f"{cfg.exercise_aggregation!r} requires dataset.recording_ids "
+                "and dataset.set_numbers. Update the dataset constructor to "
+                "expose them, or set exercise_aggregation='per_window'."
+            )
+        rec_t = np.asarray(rec)[test_idx]
+        sn_t = np.asarray(sn)[test_idx]
+        set_keys = np.array(
+            [f"{r}__{s}" if int(s) >= 0 else "" for r, s in zip(rec_t, sn_t)],
+            dtype=object,
+        )
+    else:
+        set_keys = None
+
     final_losses, final_metrics, preds, targets, masks = _evaluate(
-        model, test_loader, loss_fn, device, cfg, n_exercise, n_phase
+        model, test_loader, loss_fn, device, cfg, n_exercise, n_phase,
+        set_keys=set_keys,
+        exercise_aggregation=cfg.exercise_aggregation,
     )
     # Surface the uncertainty-weighted total val loss so Optuna can rank
     # trials by it directly (no separate composite score needed).
@@ -466,7 +502,7 @@ def aggregate_cv_results(all_results: List[Dict],
     else:
         val_total_block = {'mean': float('nan'), 'std': float('nan'), 'n': 0}
 
-    return {
+    summary = {
         'val_total': val_total_block,
         'exercise': _block('exercise', {
             'f1_macro':  _collect('exercise', 'f1_macro'),
@@ -484,3 +520,14 @@ def aggregate_cv_results(all_results: List[Dict],
             'mae':       _collect('reps', 'mae'),
         }),
     }
+    # Per-set exercise summary is only present when exercise_aggregation='both'
+    # was used at fold-eval time. Include it conditionally so default runs
+    # don't gain a NaN block.
+    has_per_set = any('exercise_per_set' in r['metrics'] for r in all_results)
+    if has_per_set:
+        summary['exercise_per_set'] = _block('exercise', {
+            'f1_macro':  _collect('exercise_per_set', 'f1_macro'),
+            'balanced_accuracy': _collect('exercise_per_set',
+                                            'balanced_accuracy'),
+        })
+    return summary

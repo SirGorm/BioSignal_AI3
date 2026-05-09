@@ -61,74 +61,77 @@ RAW_REGISTRY = {
 }
 
 
-def suggest_hps(trial: optuna.Trial, arch: str, tight: bool = False) -> Dict:
+def suggest_hps(trial: optuna.Trial, arch: str, tight: bool = False,
+                wide_arch: bool = False,
+                repr_dim_choices=None) -> Dict:
     """Optuna search space.
 
-    `tight=True` shrinks the search space toward smaller / more regularised
-    configurations — used to combat overfit on the low-N regime (~95
-    effective sets, ~10 subjects). Smaller hidden dims, stricter dropout
-    floor, larger weight_decay floor, fewer LSTM layers.
+    By default only training HPs are searched (lr, weight_decay, batch_size,
+    repr_dim ∈ [16, 32, 64]). Architecture HPs (dropout, lstm_hidden, etc.)
+    use the model class defaults — keeps param count comparable across
+    architectures.
+
+    `wide_arch=True` opens the architecture HP search:
+      - repr_dim ∈ [32, 64, 128, 256]    (up from [16,32,64])
+      - dropout  ∈ [0.1, 0.5] (uniform)  (otherwise model default 0.3)
+      - lr ceiling raised to 5e-3 even in tight mode (raw CNN often needs it)
+    Use this for raw-variant sweeps where repr_dim=16 is too small for the
+    encoder backbone.
+
+    `tight=True` narrows the lr/weight_decay ranges for the low-N regime
+    (~95 effective sets, ~10 subjects); the wider mode is for sanity-check
+    sweeps.
     """
+    if wide_arch:
+        rd_choices = list(repr_dim_choices) if repr_dim_choices else [32, 64, 128, 256]
+        out = {
+            'lr':           trial.suggest_float('lr', 1e-4, 5e-3, log=True),
+            'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-2, log=True),
+            'batch_size':   trial.suggest_categorical('batch_size', [32, 64, 128, 256]),
+            'repr_dim':     trial.suggest_categorical('repr_dim', rd_choices),
+            'dropout':      trial.suggest_float('dropout', 0.1, 0.5),
+        }
+        # LSTM-specific tuning of stacking depth (causal, bidirectional=False).
+        if arch in ('lstm', 'lstm_raw'):
+            out['n_layers'] = trial.suggest_categorical('n_layers', [1, 2])
+        return out
+    rd_choices = list(repr_dim_choices) if repr_dim_choices else [16, 32, 64]
     if tight:
-        hps = {
+        return {
             'lr':           trial.suggest_float('lr', 1e-4, 3e-3, log=True),
             'weight_decay': trial.suggest_float('weight_decay', 1e-4, 1e-2, log=True),
             'batch_size':   trial.suggest_categorical('batch_size', [128, 256]),
-            'dropout':      trial.suggest_float('dropout', 0.3, 0.6),
-            'repr_dim':     trial.suggest_categorical('repr_dim', [8, 16, 32, 64]),
+            'repr_dim':     trial.suggest_categorical('repr_dim', rd_choices),
         }
-        if arch == 'mlp':
-            hps['hidden_dim'] = trial.suggest_categorical('hidden_dim', [16, 32, 64])
-        if arch in ('lstm', 'lstm_raw', 'cnn_lstm', 'cnn_lstm_raw'):
-            hps['lstm_hidden'] = trial.suggest_categorical('lstm_hidden', [8, 16, 32, 64])
-            hps['lstm_layers'] = 1
-        if arch in ('tcn', 'tcn_raw'):
-            hps['tcn_kernel'] = trial.suggest_categorical('tcn_kernel', [3, 5])
-        return hps
-
-    hps = {
+    return {
         'lr':           trial.suggest_float('lr', 1e-4, 5e-3, log=True),
         'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True),
         'batch_size':   trial.suggest_categorical('batch_size', [64, 128, 256]),
-        'dropout':      trial.suggest_float('dropout', 0.1, 0.5),
-        'repr_dim':     trial.suggest_categorical('repr_dim', [64, 128, 256]),
+        'repr_dim':     trial.suggest_categorical('repr_dim', rd_choices),
     }
-    if arch == 'mlp':
-        hps['hidden_dim'] = trial.suggest_categorical('hidden_dim', [64, 128, 256])
-    if arch in ('lstm', 'lstm_raw', 'cnn_lstm', 'cnn_lstm_raw'):
-        hps['lstm_hidden'] = trial.suggest_categorical('lstm_hidden', [32, 64, 128])
-        hps['lstm_layers'] = trial.suggest_int('lstm_layers', 1, 2)
-    if arch in ('tcn', 'tcn_raw'):
-        hps['tcn_kernel'] = trial.suggest_categorical('tcn_kernel', [3, 5, 7])
-    return hps
 
 
 def build_factory(cls, variant: str, ds, hps: Dict):
+    """Build a model factory that uses each class's own default architecture HPs.
+
+    Optuna only tunes training HPs — architecture is fixed. We pass dataset
+    shape (n_features OR n_channels+n_timesteps) and task heads, nothing else.
+    """
     common = {
         'n_exercise': ds.n_exercise,
         'n_phase':    ds.n_phase,
-        'repr_dim':   hps['repr_dim'],
-        'dropout':    hps['dropout'],
     }
+    if 'repr_dim' in hps:
+        common['repr_dim'] = hps['repr_dim']
+    if 'dropout' in hps:
+        common['dropout'] = hps['dropout']
+    if 'n_layers' in hps:
+        common['n_layers'] = hps['n_layers']
     if variant == 'features':
         common['n_features'] = ds.n_features
-        if 'hidden_dim' in hps:
-            common['hidden_dim'] = hps['hidden_dim']
     else:
         common['n_channels'] = ds.n_channels
         common['n_timesteps'] = ds.n_timesteps
-
-    # Optional architecture-specific kwargs (only pass if the model accepts them)
-    import inspect
-    sig = inspect.signature(cls.__init__).parameters
-    if 'lstm_hidden' in hps:
-        if 'hidden' in sig:        common['hidden'] = hps['lstm_hidden']
-        elif 'lstm_hidden' in sig: common['lstm_hidden'] = hps['lstm_hidden']
-    if 'lstm_layers' in hps:
-        if 'n_layers' in sig:        common['n_layers'] = hps['lstm_layers']
-        elif 'n_lstm_layers' in sig: common['n_lstm_layers'] = hps['lstm_layers']
-    if 'tcn_kernel' in hps and 'kernel_size' in sig:
-        common['kernel_size'] = hps['tcn_kernel']
 
     def factory():
         return cls(**common)
@@ -201,7 +204,8 @@ def run_one_cv(arch: str, variant: str, dataset, folds, seeds, hps,
                 use_uncertainty: bool,
                 enabled_tasks: list = None,
                 target_modes: dict = None,
-                save_checkpoint: bool = True):
+                save_checkpoint: bool = True,
+                exercise_aggregation: str = 'per_window'):
     """One pass of run_cv with given HPs."""
     cls = (RAW_REGISTRY if variant == 'raw' else FEAT_REGISTRY)[arch]
     factory = build_factory(cls, variant, dataset, hps)
@@ -213,6 +217,7 @@ def run_one_cv(arch: str, variant: str, dataset, folds, seeds, hps,
         mixed_precision=True, num_workers=num_workers,
         use_uncertainty_weighting=use_uncertainty,
         save_checkpoint=save_checkpoint,
+        exercise_aggregation=exercise_aggregation,
     )
     if enabled_tasks is not None:
         cfg_kwargs['enabled_tasks'] = list(enabled_tasks)
@@ -277,14 +282,40 @@ def main():
                         'phase_label is clean enough to train on.')
     p.add_argument('--feature-prefixes', nargs='*', default=None,
                    help='Modality prefixes to keep in features dataset '
-                        '(e.g. emg_ acc_ ppg_ temp_). Default: all.')
+                        '(e.g. emg_ acc_ ppg_ temp_). Default: all. '
+                        'Note: matches via startswith — `emg_dimitrov` '
+                        'will also pick up `emg_dimitrov_rel`. Use '
+                        '--feature-cols for exact-name matching.')
+    p.add_argument('--feature-cols', nargs='*', default=None,
+                   help='Exact column names to keep in features dataset. '
+                        'Mutually exclusive with --feature-prefixes; takes '
+                        'precedence if both are given.')
     p.add_argument('--no-uncertainty', action='store_true',
                    help='Disable uncertainty weighting (default: ON)')
     p.add_argument('--no-tight-hps', dest='tight_hps', action='store_false',
-                   help='Use the wider Optuna search space instead of the '
-                        'default tight one. Tight (default): repr_dim<=64, '
-                        'dropout>=0.3, weight_decay>=1e-4, LSTM layers=1.')
+                   help='Use wider lr/weight_decay ranges. Architecture HPs '
+                        '(dropout, repr_dim, channels, ...) are NEVER tuned '
+                        '— model class defaults always win, so param count '
+                        'stays constant across trials. Only lr, weight_decay, '
+                        'and batch_size are searched in either mode.')
     p.set_defaults(tight_hps=True)
+    p.add_argument('--seed-hps-from', type=Path, default=None,
+                   help='Path to a best_hps.json from a prior Optuna run. '
+                        'Loads its best_hps and enqueues them as Optuna '
+                        'trial 0 — TPE then explores around them. Useful '
+                        'for fine-tuning at a different window length '
+                        'while reusing prior HP knowledge.')
+    p.add_argument('--repr-dim-choices', type=int, nargs='+', default=None,
+                   help='Restrict the Optuna repr_dim categorical to this '
+                        'exact list (e.g. --repr-dim-choices 64 128). '
+                        'Default: depends on --wide-arch-search.')
+    p.add_argument('--wide-arch-search', action='store_true',
+                   help='Open the architecture HP search: repr_dim '
+                        '∈ {32,64,128,256} and dropout ∈ [0.1, 0.5]. '
+                        'Default off — model class defaults used. Use this '
+                        'for raw-variant sweeps where the default '
+                        'repr_dim={16,32,64} ladder is too narrow for the '
+                        'encoder backbone.')
     p.add_argument('--norm-mode',
                    choices=['baseline', 'robust', 'percentile'],
                    default='baseline',
@@ -296,6 +327,12 @@ def main():
                         '(equalizes max activation across subjects, '
                         'addresses exercise overfitting).')
     p.add_argument('--skip-phase2', action='store_true')
+    p.add_argument('--exercise-aggregation',
+                   choices=['per_window', 'per_set', 'both'],
+                   default='per_window',
+                   help='Exercise eval granularity. per_set aggregates '
+                        'per-window predictions to one per (recording, set) '
+                        'via mean-softmax — mirrors RPE supervision.')
     p.add_argument('--labeled-root', type=Path, default=Path('data/labeled'))
     p.add_argument('--runs-root', type=Path, default=Path('runs'))
     p.add_argument('--splits', type=Path,
@@ -329,7 +366,17 @@ def main():
     target_modes = {'reps': args.reps_mode, 'phase': args.phase_mode}
     if args.variant == 'features':
         feat_cols = None
-        if args.feature_prefixes:
+        if args.feature_cols:
+            import pandas as pd
+            cols = set(pd.read_parquet(files[0]).columns)
+            missing = [c for c in args.feature_cols if c not in cols]
+            if missing:
+                raise KeyError(
+                    f"--feature-cols references missing columns: {missing}"
+                )
+            feat_cols = list(args.feature_cols)
+            print(f"[optuna] feature_cols (exact)={feat_cols}")
+        elif args.feature_prefixes:
             import pandas as pd
             cols = pd.read_parquet(files[0]).columns
             feat_cols = sorted(c for c in cols
@@ -412,7 +459,9 @@ def main():
             trial_log = []
 
     def objective(trial: optuna.Trial) -> float:
-        hps = suggest_hps(trial, args.arch, tight=args.tight_hps)
+        hps = suggest_hps(trial, args.arch, tight=args.tight_hps,
+                            wide_arch=args.wide_arch_search,
+                            repr_dim_choices=args.repr_dim_choices)
         hps['_patience'] = args.patience
         trial_dir = run_dir / 'phase1' / f"trial_{trial.number:03d}"
         # Per-trial cache: if cv_summary already exists, reuse the score.
@@ -434,6 +483,7 @@ def main():
                 use_uncertainty=use_uncertainty,
                 enabled_tasks=args.tasks, target_modes=target_modes,
                 save_checkpoint=False,
+                exercise_aggregation=args.exercise_aggregation,
             )
             score = score_summary(summary, enabled_tasks=args.tasks)
             elapsed = time.time() - t0
@@ -474,6 +524,19 @@ def main():
     n_remaining = max(0, args.n_trials - n_done)
     print(f"[optuna] Resume: {n_done} trials already in study, "
           f"running {n_remaining} more")
+    # Warm-start: load best_hps from a prior run and enqueue as next trial.
+    # TPE then explores around them. Only enqueue once (skip if any prior
+    # trials already exist — assume they were seeded earlier).
+    if args.seed_hps_from is not None and n_done == 0 and n_remaining > 0:
+        try:
+            seed_hps = json.loads(Path(args.seed_hps_from).read_text())
+            seed_params = seed_hps.get('best_hps', seed_hps)
+            study.enqueue_trial(seed_params)
+            print(f"[optuna] Seeded trial 0 from {args.seed_hps_from}: "
+                  f"{seed_params}")
+        except Exception as e:
+            print(f"[optuna] WARN: could not load seed HPs from "
+                  f"{args.seed_hps_from}: {e}")
     if n_remaining > 0:
         study.optimize(objective, n_trials=n_remaining, show_progress_bar=False)
     p1_elapsed = time.time() - t_start_p1
@@ -482,7 +545,9 @@ def main():
     best_hps = study.best_params
     # Re-merge any architecture defaults that weren't sampled in this study
     sample = suggest_hps(optuna.trial.FixedTrial({**best_hps}), args.arch,
-                          tight=args.tight_hps)
+                          tight=args.tight_hps,
+                          wide_arch=args.wide_arch_search,
+                          repr_dim_choices=args.repr_dim_choices)
     best_hps_full = {**sample, **best_hps}
 
     print(f"[optuna] BEST: {study.best_value:.4f} with {best_hps_full}")
@@ -512,6 +577,7 @@ def main():
         num_workers=args.num_workers, out_dir=p2_dir,
         use_uncertainty=use_uncertainty,
         enabled_tasks=args.tasks, target_modes=target_modes,
+        exercise_aggregation=args.exercise_aggregation,
     )
     p2_elapsed = time.time() - t_start_p2
     print(f"[optuna] Phase 2 complete in {p2_elapsed/60:.1f} min")

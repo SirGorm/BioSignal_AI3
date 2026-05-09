@@ -214,7 +214,7 @@ class WindowFeatureDataset(Dataset):
         #                   activation" scale across subjects.
         # Sparse-feature fallback (< 100 valid baseline rows) drops to
         # full-recording stats for that feature.
-        BASELINE_S = 90.0
+        BASELINE_S = 120.0
         rec_ids = df['recording_id'].to_numpy()
         t_sess = df['t_session_s'].to_numpy()
         n_feat = x_arr.shape[1]
@@ -368,6 +368,20 @@ class WindowFeatureDataset(Dataset):
         self.t_fatigue = torch.from_numpy(np.nan_to_num(rpe, nan=0.0))
 
         self.subject_ids: List[str] = df['subject_id'].astype(str).tolist()
+        # Per-window (recording, set) identifiers — used by per-set exercise
+        # eval (Rute A: aggregate per-window predictions to one per set,
+        # mirroring how RPE is supervised). NaN set_number → -1 sentinel
+        # (rest periods between sets); filtered out at aggregation time.
+        if 'recording_id' in df.columns:
+            self.recording_ids = df['recording_id'].astype(str).to_numpy()
+        else:
+            self.recording_ids = np.array([f"rec_{s}" for s in self.subject_ids],
+                                            dtype=object)
+        if 'set_number' in df.columns:
+            sn = pd.to_numeric(df['set_number'], errors='coerce').to_numpy()
+            self.set_numbers = np.where(np.isnan(sn), -1, sn).astype(np.int64)
+        else:
+            self.set_numbers = np.full(len(df), -1, dtype=np.int64)
         # Filled in by materialize_to_device(); flag enables GPU fast path in
         # src/training/loop.py:_make_loader.
         self.gpu_resident: bool = False

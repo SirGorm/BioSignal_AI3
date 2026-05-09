@@ -85,7 +85,7 @@ class RawMultimodalWindowDataset(Dataset):
     """Per-window raw multimodal biosignals.
 
     Returns at index i:
-      x       : (C=6, T=200) float32 tensor — z-scored, clipped, NaN->0
+      x       : (C=4, T=200) float32 tensor — z-scored, clipped, NaN->0
       targets : {'exercise': long, 'phase': long, 'fatigue': float, 'reps': float}
       masks   : {same keys, bool} — True where target is valid
     """
@@ -181,6 +181,11 @@ class RawMultimodalWindowDataset(Dataset):
         # ---- Build window index: list of (file_idx, start_sample_in_df) -----
         self._window_idx: List[Tuple[int, int]] = []
         self._subject_ids_per_window: List[str] = []
+        # Per-window (recording, set) identifiers — populated below so that
+        # per-set evaluation (Rute A) can aggregate predictions by set
+        # without re-deriving them at eval time.
+        self._recording_ids_per_window: List[str] = []
+        self._set_numbers_per_window: List[int] = []
         # Per-window override mask for the phase head. True => phase loss/eval
         # contributes; False => masked out (set is not whitelisted).
         self._phase_wl_per_window: List[bool] = []
@@ -197,18 +202,28 @@ class RawMultimodalWindowDataset(Dataset):
             else:
                 active_mask = np.ones(n, dtype=bool)
 
-            # Per-sample whitelist lookup (only used if phase_whitelist set).
+            # Per-sample (recording, set) lookup — always computed (cheap),
+            # used both for the optional phase whitelist and the per-window
+            # set identifier exposed for per-set exercise eval.
+            if 'recording_id' in df.columns:
+                rid_col = df['recording_id'].astype(str).to_numpy()
+            else:
+                rid_col = np.array([f"file_{file_idx}"] * n, dtype=object)
+            if 'set_number' in df.columns:
+                set_col_f = pd.to_numeric(df['set_number'],
+                                            errors='coerce').to_numpy()
+            else:
+                set_col_f = np.full(n, np.nan)
+
             if phase_whitelist is not None:
                 if 'recording_id' not in df.columns or 'set_number' not in df.columns:
                     raise ValueError(
                         "phase_whitelist requires 'recording_id' and 'set_number' "
                         "columns in aligned_features.parquet."
                     )
-                rid_col = df['recording_id'].astype(str).to_numpy()
-                set_col = pd.to_numeric(df['set_number'], errors='coerce').to_numpy()
                 wl_per_sample = np.zeros(n, dtype=bool)
                 for i in range(n):
-                    s = set_col[i]
+                    s = set_col_f[i]
                     if s != s:  # NaN
                         continue
                     wl_per_sample[i] = (rid_col[i], int(round(s))) in phase_whitelist
@@ -221,6 +236,11 @@ class RawMultimodalWindowDataset(Dataset):
                     continue
                 self._window_idx.append((file_idx, start))
                 self._subject_ids_per_window.append(str(subj))
+                self._recording_ids_per_window.append(str(rid_col[end]))
+                s_end = set_col_f[end]
+                self._set_numbers_per_window.append(
+                    -1 if s_end != s_end else int(round(s_end))
+                )
                 if wl_per_sample is None:
                     self._phase_wl_per_window.append(True)
                 else:
@@ -238,6 +258,13 @@ class RawMultimodalWindowDataset(Dataset):
         if verbose:
             print(f"[raw_dataset] {len(self._window_idx)} active windows from "
                   f"{len(self._dfs)} recordings")
+        # Per-window numpy arrays (parallel to _window_idx). Used by per-set
+        # exercise eval (Rute A) — slice by test_idx, build a (rec, set) key,
+        # pass to compute_all_metrics(set_keys=...).
+        self.recording_ids = np.asarray(self._recording_ids_per_window,
+                                          dtype=object)
+        self.set_numbers = np.asarray(self._set_numbers_per_window,
+                                        dtype=np.int64)
         # Filled in by materialize_to_device(); enables GPU fast path.
         self.gpu_resident: bool = False
 

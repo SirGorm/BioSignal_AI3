@@ -94,6 +94,7 @@ def run_training(
     smoke_test: bool = False,
     use_uncertainty_weighting: bool = False,
     phase_whitelist_path: Optional[Path] = None,
+    exercise_aggregation: str = 'per_window',
 ):
     if smoke_test:
         seeds = (42,)
@@ -155,6 +156,7 @@ def run_training(
         weight_decay=1e-4, grad_clip=1.0, patience=8,
         mixed_precision=True, num_workers=2,
         use_uncertainty_weighting=use_uncertainty_weighting,
+        exercise_aggregation=exercise_aggregation,
     )
     with open(run_dir / 'train_config.json', 'w') as f:
         json.dump(cfg.__dict__, f, indent=2)
@@ -196,4 +198,13 @@ def parse_common_args():
                         'listed are masked out of phase loss/eval but still '
                         'contribute to exercise/fatigue/reps. '
                         'See configs/phase_quality_sets.csv for the format.')
+    p.add_argument('--exercise-aggregation',
+                   choices=['per_window', 'per_set', 'both'],
+                   default='per_window',
+                   help='Exercise-head eval granularity. per_window (default, '
+                        'legacy): F1 over every active window. per_set: '
+                        'mean-softmax-aggregate to one prediction per '
+                        '(recording, set) — mirrors RPE supervision. both: '
+                        'report per-window in metrics["exercise"] AND '
+                        'per-set in metrics["exercise_per_set"].')
     return p

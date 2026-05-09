@@ -55,6 +55,16 @@ training:
   mixed_precision: true
   grad_clip: 1.0
   uncertainty_weighting: true  # Kendall et al. 2018 — enabled by default in train_optuna.py (use --no-uncertainty to disable)
+  # Exercise-head eval granularity. Pass via the matching CLI flag
+  # (--exercise-aggregation) on the train_*.py drivers; defaults to
+  # 'per_window' so existing baselines reproduce bit-exact.
+  #   per_window : F1 over every active window (~250k/fold).
+  #   per_set    : mean-softmax-aggregate to one prediction per (recording,
+  #                set) — F1 over ~116 sets, mirrors the RPE supervision
+  #                granularity. Replaces the per-window block in metrics.json.
+  #   both       : keep per-window in metrics["exercise"] AND add per-set in
+  #                metrics["exercise_per_set"] for direct comparison.
+  exercise_aggregation: per_window
 
 multitask_loss_weights:
   exercise: 1.0
