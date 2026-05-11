@@ -47,10 +47,12 @@ MODES = ['multi', 'exercise', 'phase', 'fatigue', 'reps']
 WINDOWS = [2.0, 1.0, 5.0]   # base = WINDOWS[0]
 SEEDS = [42, 7, 1337]
 SPLITS = ROOT / 'configs' / 'splits.csv'
-RESULTS_CSV = ROOT / 'results' / 'sweep_raw_results.csv'
-PER_FOLD_CSV = ROOT / 'results' / 'sweep_raw_per_fold.csv'
-LOG_DIR = ROOT / 'logs' / 'sweep_raw'
-RUNS_ROOT = ROOT / 'runs' / 'sweep_raw'
+
+# Output paths — set by main() based on --name.
+RESULTS_CSV: Path
+PER_FOLD_CSV: Path
+LOG_DIR: Path
+RUNS_ROOT: Path
 
 
 def run_dir_for(arch: str, mode: str, window_s: float) -> Path:
@@ -117,7 +119,8 @@ class JobQueue:
 
 def build_optuna_cmd(arch: str, mode: str, window_s: float, n_trials: int,
                       seed_hps_from: Path | None, run_dir: Path,
-                      reps_mode: str, phase_mode: str) -> list[str]:
+                      reps_mode: str, phase_mode: str,
+                      include_rest: bool) -> list[str]:
     cmd = [
         sys.executable, 'scripts/train_optuna.py',
         '--arch', arch, '--variant', 'raw',
@@ -135,6 +138,8 @@ def build_optuna_cmd(arch: str, mode: str, window_s: float, n_trials: int,
         '--skip-phase2',
         '--run-dir', str(run_dir),
     ]
+    if include_rest:
+        cmd.append('--include-rest')
     if seed_hps_from is not None:
         cmd += ['--seed-hps-from', str(seed_hps_from)]
     return cmd
@@ -142,8 +147,9 @@ def build_optuna_cmd(arch: str, mode: str, window_s: float, n_trials: int,
 
 def build_phase2_cmd(arch: str, mode: str, window_s: float, seed: int,
                       src_run_dir: Path, out_run_dir: Path,
-                      reps_mode: str, phase_mode: str) -> list[str]:
-    return [
+                      reps_mode: str, phase_mode: str,
+                      include_rest: bool) -> list[str]:
+    cmd = [
         sys.executable, 'scripts/train_phase2_only.py',
         '--arch', arch, '--variant', 'raw',
         '--src-run-dir', str(src_run_dir),
@@ -158,6 +164,9 @@ def build_phase2_cmd(arch: str, mode: str, window_s: float, seed: int,
         '--reps-mode', reps_mode,
         '--phase-mode', phase_mode,
     ]
+    if include_rest:
+        cmd.append('--include-rest')
+    return cmd
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -279,15 +288,29 @@ def main():
                           'soft_overlap_reps_<W>s columns — generate via '
                           'scripts/add_soft_overlap_all_paths.py.')
     ap.add_argument('--phase-mode', choices=['hard', 'soft'], default='soft')
+    ap.add_argument('--include-rest', action='store_true',
+                     help='Include rest windows (active_only=False) in BOTH '
+                          'Optuna search and phase 2.')
+    ap.add_argument('--name', default='sweep_raw',
+                     help='Output basename. Paths become runs/<name>/, '
+                          'logs/<name>/, results/<name>_results.csv. '
+                          'Default: sweep_raw.')
     args = ap.parse_args()
+
+    global RUNS_ROOT, LOG_DIR, RESULTS_CSV, PER_FOLD_CSV
+    RUNS_ROOT = ROOT / 'runs' / args.name
+    LOG_DIR = ROOT / 'logs' / args.name
+    RESULTS_CSV = ROOT / 'results' / f'{args.name}_results.csv'
+    PER_FOLD_CSV = ROOT / 'results' / f'{args.name}_per_fold.csv'
 
     base_w = args.windows[0]
     other_ws = args.windows[1:]
     pool = JobQueue(args.max_concurrent)
 
-    print(f"[sweep_raw] archs={args.archs} modes={args.modes} "
+    print(f"[{args.name}] archs={args.archs} modes={args.modes} "
           f"base_window={base_w}s other_windows={other_ws} seeds={args.seeds} "
-          f"max_concurrent={args.max_concurrent}")
+          f"max_concurrent={args.max_concurrent} include_rest={args.include_rest}")
+    print(f"[{args.name}] runs_root={RUNS_ROOT}  log_dir={LOG_DIR}")
 
     # ─── PHASE A: Optuna at base window for every (arch, mode) ────────────
     print("\n=== PHASE A: Optuna 100 trials at base window per (arch, mode) ===")
@@ -301,7 +324,8 @@ def main():
             cmd = build_optuna_cmd(arch, mode, base_w, n_trials=100,
                                     seed_hps_from=None, run_dir=rd,
                                     reps_mode=args.reps_mode,
-                                    phase_mode=args.phase_mode)
+                                    phase_mode=args.phase_mode,
+                                    include_rest=args.include_rest)
             log = LOG_DIR / f"A_{arch}__{mode}__w{int(base_w)}s.log"
             label = f"A {arch}/{mode}/w{int(base_w)}s"
             if args.dry_run:
@@ -329,7 +353,8 @@ def main():
                 cmd = build_optuna_cmd(arch, mode, w, n_trials=20,
                                         seed_hps_from=base_hps, run_dir=rd,
                                         reps_mode=args.reps_mode,
-                                        phase_mode=args.phase_mode)
+                                        phase_mode=args.phase_mode,
+                                        include_rest=args.include_rest)
                 log = LOG_DIR / f"B_{arch}__{mode}__w{int(w)}s.log"
                 label = f"B {arch}/{mode}/w{int(w)}s"
                 if args.dry_run:
@@ -356,7 +381,8 @@ def main():
                         continue
                     cmd = build_phase2_cmd(arch, mode, w, seed, src, out,
                                             reps_mode=args.reps_mode,
-                                            phase_mode=args.phase_mode)
+                                            phase_mode=args.phase_mode,
+                                            include_rest=args.include_rest)
                     log = LOG_DIR / f"C_{arch}__{mode}__w{int(w)}s__s{seed}.log"
                     label = f"C {arch}/{mode}/w{int(w)}s/seed{seed}"
                     if args.dry_run:

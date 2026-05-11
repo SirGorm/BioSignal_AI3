@@ -327,6 +327,8 @@ def main():
                         '(equalizes max activation across subjects, '
                         'addresses exercise overfitting).')
     p.add_argument('--skip-phase2', action='store_true')
+    p.add_argument('--include-rest', action='store_true',
+                   help='Include rest windows (active_only=False).')
     p.add_argument('--exercise-aggregation',
                    choices=['per_window', 'per_set', 'both'],
                    default='per_window',
@@ -383,14 +385,16 @@ def main():
                                 if any(c.startswith(p) for p in args.feature_prefixes))
             print(f"[optuna] feature_prefixes={args.feature_prefixes} -> "
                   f"{len(feat_cols)} cols")
-        dataset = WindowFeatureDataset(window_parquets=files, active_only=True,
+        dataset = WindowFeatureDataset(window_parquets=files,
+                                         active_only=not args.include_rest,
                                          phase_whitelist=phase_wl,
                                          feature_cols=feat_cols,
                                          target_modes=target_modes,
                                          window_s=args.window_s,
                                          norm_mode=args.norm_mode)
     else:
-        dataset = RawMultimodalWindowDataset(parquet_paths=files, active_only=True,
+        dataset = RawMultimodalWindowDataset(parquet_paths=files,
+                                               active_only=not args.include_rest,
                                                phase_whitelist=phase_wl,
                                                target_modes=target_modes,
                                                window_s=args.window_s,

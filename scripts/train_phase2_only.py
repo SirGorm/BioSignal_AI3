@@ -68,6 +68,11 @@ def main():
                    help='Exercise eval granularity. per_set aggregates '
                         'per-window predictions to one per (recording, set) '
                         'via mean-softmax — mirrors RPE supervision.')
+    p.add_argument('--norm-mode',
+                   choices=['baseline', 'robust', 'percentile'],
+                   default='baseline',
+                   help='Per-recording normalization mode (must match how '
+                        'the source run was trained).')
     p.add_argument('--no-tight-hps', dest='tight_hps', action='store_false',
                     help='Use wide HP search space (default: tight, must '
                          'match how the source run was trained).')
@@ -127,7 +132,8 @@ def main():
         dataset = RawMultimodalWindowDataset(
             parquet_paths=files, active_only=active_only,
             phase_whitelist=phase_wl, target_modes=target_modes,
-            window_s=args.window_s, channels=args.raw_channels)
+            window_s=args.window_s, channels=args.raw_channels,
+            norm_mode=args.norm_mode)
     print(f"[phase2-only] dataset: {len(dataset)} windows  "
           f"phase_classes={list(dataset.phase_encoder.classes_)}")
 
